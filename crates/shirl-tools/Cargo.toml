@@ -1,0 +1,23 @@
+[package]
+name = "shirl-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Domain-specific tools for the Shirl coding assistant."
+
+[dependencies]
+sweet-core = { workspace = true }
+tokio = { workspace = true, features = ["process", "fs"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+schemars = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+ignore = { workspace = true }
+regex = { workspace = true }
+globset = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

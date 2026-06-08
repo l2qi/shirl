@@ -1,0 +1,105 @@
+// Copyright (C) 2026 Ryuichi Intellectual Property LLC and the Shirl project contributors
+// SPDX-License-Identifier: Apache-2.0
+
+use sweet_agent::{Agent, Capability, CommandContext, HookEvent, ProcedureSpec};
+use sweet_core::{MemoryItem, Message, Model, Result};
+
+use crate::hooks::AutoCompactionProcedure;
+
+/// Default number of recent items to keep verbatim when compacting.
+pub const DEFAULT_PRESERVE_RECENT: usize = 6;
+
+const AUTO_COMPACTION_PROCEDURE_ID: &str = "shirl:compaction:auto";
+
+/// Configuration for automatic compaction.
+pub struct CompactionConfig {
+    pub threshold: f32,
+    pub preserve_recent: usize,
+}
+
+impl Default for CompactionConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 0.7,
+            preserve_recent: DEFAULT_PRESERVE_RECENT,
+        }
+    }
+}
+
+/// Install Shirl's automatic compaction on `agent`. The procedure runs as a
+/// `BeforeModelCall` hook and compacts session history when the model's
+/// context window is breached.
+pub fn install_auto_compaction<M: Model>(agent: Agent<M>, config: CompactionConfig) -> Agent<M> {
+    agent.with_capabilities([
+        Capability::Procedure(ProcedureSpec::new(
+            AUTO_COMPACTION_PROCEDURE_ID,
+            "Automatically compact Shirl session history before model calls",
+            AutoCompactionProcedure::new(config),
+        )),
+        Capability::hook(HookEvent::BeforeModelCall, AUTO_COMPACTION_PROCEDURE_ID),
+    ])
+}
+
+pub async fn compact_session(
+    ctx: &mut dyn CommandContext,
+    preserve_recent: usize,
+    hint: Option<&str>,
+) -> Result<()> {
+    let items = ctx.session().items().to_vec();
+    if items.len() <= preserve_recent {
+        return Ok(());
+    }
+    let range = 0..(items.len() - preserve_recent);
+
+    let summary_prompt = build_compaction_prompt(&items[range.clone()], hint);
+    let summary_reply = ctx.model().complete(&[summary_prompt], &[]).await?;
+
+    ctx.session_mut()
+        .replace_range(range, compaction_pair(summary_reply.text_content(), hint))?;
+    Ok(())
+}
+
+/// Build the user+assistant `MemoryItem` pair that replaces a compacted range.
+/// Both messages carry `compacted = true` so they round-trip through
+/// persistence as compaction-generated entries.
+pub(crate) fn compaction_pair(summary: String, hint: Option<&str>) -> Vec<MemoryItem> {
+    let mut user_msg = Message::user(compaction_user_content(hint));
+    user_msg.compacted = true;
+    let mut assistant_msg = Message::assistant(summary);
+    assistant_msg.compacted = true;
+    vec![
+        MemoryItem::Message(user_msg),
+        MemoryItem::Message(assistant_msg),
+    ]
+}
+
+fn compaction_user_content(hint: Option<&str>) -> String {
+    let mut s =
+        String::from("[System: This is a compaction summary of the preceding conversation.]");
+    if let Some(hint) = hint {
+        s.push_str(&format!("\nUser hint: {}", hint));
+    }
+    s
+}
+
+pub(crate) fn build_compaction_prompt(
+    items: &[sweet_core::MemoryItem],
+    hint: Option<&str>,
+) -> Message {
+    let mut text = String::from(
+        "Summarize the following conversation history concisely. Follow these guidelines:\n\
+         - Preserve: architectural decisions, unresolved bugs, key facts, file paths discussed, \
+         tool results that informed decisions\n\
+         - Drop: redundant tool outputs, repeated explorations, intermediate reasoning\n\
+         - Keep: the most recent exchange verbatim if possible\n\
+         - Format: write a coherent narrative, not a bullet list\n\n",
+    );
+    for item in items {
+        let MemoryItem::Message(msg) = item;
+        text.push_str(&format!("{:?}: {}\n", msg.role, msg.text_content()));
+    }
+    if let Some(hint) = hint {
+        text.push_str(&format!("\nAdditional context from user: {}", hint));
+    }
+    Message::user(text)
+}
