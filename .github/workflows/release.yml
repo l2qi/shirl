@@ -41,13 +41,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }} -p shirl-cli
+        run: cargo build --profile dist --target ${{ matrix.target }} -p shirl-cli
 
       - name: Package
         shell: bash
         run: |
           mkdir -p dist
-          cp "target/${{ matrix.target }}/release/shirl" dist/shirl
+          cp "target/${{ matrix.target }}/dist/shirl" dist/shirl
           tar -czf "shirl-${{ matrix.target }}.tar.gz" -C dist shirl
 
       - name: Upload release artifact

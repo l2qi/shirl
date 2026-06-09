@@ -67,3 +67,10 @@ sweet-mcp = { git = "https://github.com/sweet/sweet", tag = "v0.3.2" }
 # sweet-session = { path = "../sweet/crates/sweet-session" }
 # sweet-sandbox = { path = "../sweet/crates/sweet-sandbox" }
 # sweet-mcp = { path = "../sweet/crates/sweet-mcp" }
+
+# Profile for CI release builds: strips symbols for smaller binaries.
+# The default `release` profile (used by `scripts/install.sh`) keeps symbols
+# intact so local builds produce readable panic backtraces.
+[profile.dist]
+inherits = "release"
+strip = true
