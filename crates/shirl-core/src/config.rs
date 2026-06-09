@@ -14,7 +14,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 /// Top-level configuration file.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ShirlConfig {
     /// Default provider/model used for all agents unless overridden.
     pub default: AgentModelConfig,
@@ -30,7 +30,7 @@ pub struct ShirlConfig {
 }
 
 /// Provider + model pair for a single agent.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AgentModelConfig {
     /// Provider id (e.g. `"anthropic"`, `"openai"`, or a custom provider id).
     pub provider: String,
@@ -43,7 +43,7 @@ pub struct AgentModelConfig {
 }
 
 /// A user-defined provider declared in `config.toml` under `[providers.*]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CustomProviderEntry {
     /// Base URL for the API endpoint.
     pub base_url: String,
@@ -55,7 +55,7 @@ pub struct CustomProviderEntry {
 }
 
 /// A user-defined model extension declared under `[models.<provider_id>.*]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelExtension {
     /// Human-readable name for the picker (optional, defaults to model id).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -151,5 +151,134 @@ impl ShirlConfig {
             model: model.into(),
             web_search: None,
         };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn load_missing_file_returns_none() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nonexistent.toml");
+        assert_eq!(ShirlConfig::load(&path).unwrap(), None);
+    }
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let mut config = ShirlConfig::default();
+        config.set_default("anthropic", "claude-sonnet-4-20250514");
+        config.set_agent_model("plan", "openai", "gpt-4o");
+        config.save(&path).unwrap();
+
+        let loaded = ShirlConfig::load(&path).unwrap().unwrap();
+        assert_eq!(loaded.default.provider, "anthropic");
+        assert_eq!(loaded.default.model, "claude-sonnet-4-20250514");
+        assert_eq!(loaded.provider_for("plan"), "openai");
+        assert_eq!(loaded.model_for("plan"), "gpt-4o");
+    }
+
+    #[test]
+    fn is_complete_requires_provider_and_model() {
+        let mut config = ShirlConfig::default();
+        assert!(!config.is_complete());
+
+        config.default.provider = "anthropic".to_string();
+        assert!(!config.is_complete());
+
+        config.default.model = "claude-sonnet-4-20250514".to_string();
+        assert!(config.is_complete());
+    }
+
+    #[test]
+    fn provider_for_falls_back_to_default() {
+        let mut config = ShirlConfig::default();
+        config.set_default("openai", "gpt-4o");
+        assert_eq!(config.provider_for("plan"), "openai");
+        assert_eq!(config.provider_for("review"), "openai");
+
+        config.set_agent_model("plan", "anthropic", "claude-sonnet-4-20250514");
+        assert_eq!(config.provider_for("plan"), "anthropic");
+        assert_eq!(config.provider_for("review"), "openai");
+    }
+
+    #[test]
+    fn model_for_falls_back_to_default() {
+        let mut config = ShirlConfig::default();
+        config.set_default("anthropic", "default-model");
+        config.set_agent_model("plan", "openai", "plan-model");
+        assert_eq!(config.model_for("main"), "default-model");
+        assert_eq!(config.model_for("plan"), "plan-model");
+    }
+
+    #[test]
+    fn web_search_for_agent_overrides_default() {
+        let mut config = ShirlConfig::default();
+        config.set_default("anthropic", "model");
+        config.default.web_search = Some("tavily".to_string());
+        assert_eq!(config.web_search_for("main"), Some("tavily"));
+
+        let plan = AgentModelConfig {
+            provider: "openai".to_string(),
+            model: "gpt-4o".to_string(),
+            web_search: Some("brave".to_string()),
+        };
+        config.agents.insert("plan".to_string(), plan);
+        assert_eq!(config.web_search_for("plan"), Some("brave"));
+        // "review" has no override — falls back to default.
+        assert_eq!(config.web_search_for("review"), Some("tavily"));
+    }
+
+    #[test]
+    fn web_search_for_none_when_not_configured() {
+        let config = ShirlConfig::default();
+        assert_eq!(config.web_search_for("main"), None);
+    }
+
+    #[test]
+    fn load_parses_custom_providers_and_extensions() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("config.toml");
+
+        let toml = r#"
+[default]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+
+[providers.my-local]
+base_url = "http://localhost:11434"
+protocol = "openai"
+display_name = "Local Ollama"
+
+[models.my-local.llama3]
+display_name = "Llama 3 8B"
+context_window = 8192
+"#;
+        std::fs::write(&path, toml).unwrap();
+        let config = ShirlConfig::load(&path).unwrap().unwrap();
+
+        assert_eq!(config.providers.len(), 1);
+        let provider = &config.providers["my-local"];
+        assert_eq!(provider.base_url, "http://localhost:11434");
+        assert_eq!(provider.protocol, "openai");
+        assert_eq!(provider.display_name.as_deref(), Some("Local Ollama"));
+
+        let ext = &config.models["my-local"]["llama3"];
+        assert_eq!(ext.display_name.as_deref(), Some("Llama 3 8B"));
+        assert_eq!(ext.context_window, Some(8192));
+    }
+
+    #[test]
+    fn save_creates_parent_directories() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nested/deep/config.toml");
+        let config = ShirlConfig::default();
+        config.save(&path).unwrap();
+        assert!(path.exists());
     }
 }

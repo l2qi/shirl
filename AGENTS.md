@@ -15,11 +15,11 @@ Shirl is a terminal-based coding assistant CLI built on the [Sweet](https://gith
 Dependency direction (one-way — never reverse):
 ```
 shirl-cli → shirl-{core,llm,ui,agents,tools} → sweet-*
-shirl-cli → sweet-{agent,core,sandbox,tools,mcp}
+shirl-cli → sweet-{agent,core,llm,sandbox,tools,mcp,session}
 shirl-core → sweet-{core,agent,session}
 shirl-llm → sweet-{core,llm}
 shirl-ui → sweet-{agent,core}
-shirl-agents → sweet-{agent,core,tools}; shirl-tools
+shirl-agents → sweet-{agent,core,tools}; shirl-tools → sweet-core
 shirl-tools → sweet-core
 ```
 
@@ -64,7 +64,7 @@ Anti-patterns to avoid:
 
 ### Error handling
 
-- **Library crates** (`shirl-core`, `shirl-llm`, etc.): use `thiserror`, define typed error enums, expose `pub type Result<T> = std::result::Result<T, Error>`.
+- **Library crates** (`shirl-core`, `shirl-llm`, etc.): use `anyhow` for error propagation. Wrap external errors with `.context()` for clarity. Define `thiserror` error enums only when callers need to match on specific variants (e.g. `shirl-ui` clipboard errors).
 - **Binary** (`shirl-cli`): use `anyhow`, propagate with `?`.
 
 ### Async
@@ -115,7 +115,6 @@ All three disk-discovered providers share the CWD→git-root walk in the private
 
 - **Unit tests**: `#[cfg(test)] mod tests { ... }` inside the source file.
 - **Integration tests**: `crates/<crate>/tests/*.rs`.
-- **Env-var tests**: mark `#[serial]` (from `serial_test`).
 - Async tests: `#[tokio::test]`.
 
 ## Mandatory pre-commit checklist

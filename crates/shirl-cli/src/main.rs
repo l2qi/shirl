@@ -252,7 +252,9 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
 
     let main_model = {
         let store = models.lock().await;
-        store.get(AgentKind::Main).unwrap()
+        store
+            .get(AgentKind::Main)
+            .context("no model configured for main agent — run /model to set one")?
     };
 
     let session_id = session.id().clone();

@@ -103,3 +103,66 @@ pub(crate) fn build_compaction_prompt(
     }
     Message::user(text)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compaction_pair_marks_compacted() {
+        let pair = compaction_pair("Summary text".to_string(), None);
+        assert_eq!(pair.len(), 2);
+
+        let MemoryItem::Message(user) = &pair[0];
+        assert_eq!(user.role, sweet_core::Role::User);
+        assert!(user.compacted);
+        assert!(user.text_content().contains("compaction summary"));
+
+        let MemoryItem::Message(assistant) = &pair[1];
+        assert_eq!(assistant.role, sweet_core::Role::Assistant);
+        assert!(assistant.compacted);
+        assert_eq!(assistant.text_content(), "Summary text");
+    }
+
+    #[test]
+    fn compaction_pair_includes_hint() {
+        let pair = compaction_pair("Summary".to_string(), Some("focus on auth"));
+        let MemoryItem::Message(user) = &pair[0];
+        assert!(user.text_content().contains("focus on auth"));
+    }
+
+    #[test]
+    fn compaction_pair_no_hint_omits_hint_line() {
+        let pair = compaction_pair("Summary".to_string(), None);
+        let MemoryItem::Message(user) = &pair[0];
+        assert!(!user.text_content().contains("User hint:"));
+    }
+
+    #[test]
+    fn build_compaction_prompt_includes_history() {
+        let items = vec![
+            MemoryItem::Message(Message::user("hello")),
+            MemoryItem::Message(Message::assistant("world")),
+        ];
+        let prompt = build_compaction_prompt(&items, None);
+        let text = prompt.text_content();
+        assert!(text.contains("hello"));
+        assert!(text.contains("world"));
+        assert!(text.contains("Summarize"));
+    }
+
+    #[test]
+    fn build_compaction_prompt_with_hint() {
+        let items = vec![MemoryItem::Message(Message::user("fix bug"))];
+        let prompt = build_compaction_prompt(&items, Some("keep file paths"));
+        let text = prompt.text_content();
+        assert!(text.contains("keep file paths"));
+    }
+
+    #[test]
+    fn default_config_values() {
+        let config = CompactionConfig::default();
+        assert!((config.threshold - 0.7).abs() < f32::EPSILON);
+        assert_eq!(config.preserve_recent, DEFAULT_PRESERVE_RECENT);
+    }
+}

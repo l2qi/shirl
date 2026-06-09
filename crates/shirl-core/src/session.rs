@@ -108,3 +108,50 @@ pub fn sessions_root() -> Result<PathBuf> {
 pub fn session_dir(id: &SessionId) -> Result<PathBuf> {
     Ok(sessions_root()?.join(id.to_string()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn open_in_creates_directories() {
+        let dir = TempDir::new().unwrap();
+        let id = SessionId::new();
+        let session = PersistedSession::open_in(dir.path(), id.clone()).unwrap();
+        assert_eq!(session.id(), &id);
+
+        let db_path = dir.path().join(format!("sessions/{}/session.db", id));
+        assert!(db_path.exists());
+    }
+
+    #[test]
+    fn open_in_resume_loads_existing() {
+        let dir = TempDir::new().unwrap();
+        let id = SessionId::new();
+
+        {
+            let mut s1 = PersistedSession::open_in(dir.path(), id.clone()).unwrap();
+            s1.push(MemoryItem::Message(Message::user("hello")))
+                .unwrap();
+        }
+
+        let s2 = PersistedSession::open_in(dir.path(), id.clone()).unwrap();
+        assert_eq!(s2.id(), &id);
+        assert_eq!(s2.items().len(), 1);
+    }
+
+    #[test]
+    fn session_dir_includes_id() {
+        let id = SessionId::new();
+        let path = session_dir(&id).unwrap();
+        assert!(path.to_string_lossy().contains(&id.to_string()));
+        assert!(path.to_string_lossy().contains("sessions"));
+    }
+
+    #[test]
+    fn sessions_root_ends_with_sessions() {
+        let root = sessions_root().unwrap();
+        assert!(root.to_string_lossy().ends_with("sessions"));
+    }
+}

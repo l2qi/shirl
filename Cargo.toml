@@ -46,18 +46,18 @@ toml = "0.8"
 arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 
-# Sweet — pinned to the v0.3.1 release on GitHub.
+# Sweet — pinned to the v0.3.2 release on GitHub.
 # For local development against the sister repo on disk, uncomment the
 # [patch] section below to override these with path deps.
-sweet-core = { git = "https://github.com/sweet/sweet", tag = "v0.3.1" }
-sweet-agent = { git = "https://github.com/sweet/sweet", tag = "v0.3.1" }
-sweet-llm = { git = "https://github.com/sweet/sweet", tag = "v0.3.1", default-features = false }
-sweet-tools = { git = "https://github.com/sweet/sweet", tag = "v0.3.1", default-features = false }
-sweet-session = { git = "https://github.com/sweet/sweet", tag = "v0.3.1" }
-sweet-sandbox = { git = "https://github.com/sweet/sweet", tag = "v0.3.1" }
-sweet-mcp = { git = "https://github.com/sweet/sweet", tag = "v0.3.1" }
+sweet-core = { git = "https://github.com/sweet/sweet", tag = "v0.3.2" }
+sweet-agent = { git = "https://github.com/sweet/sweet", tag = "v0.3.2" }
+sweet-llm = { git = "https://github.com/sweet/sweet", tag = "v0.3.2", default-features = false }
+sweet-tools = { git = "https://github.com/sweet/sweet", tag = "v0.3.2", default-features = false }
+sweet-session = { git = "https://github.com/sweet/sweet", tag = "v0.3.2" }
+sweet-sandbox = { git = "https://github.com/sweet/sweet", tag = "v0.3.2" }
+sweet-mcp = { git = "https://github.com/sweet/sweet", tag = "v0.3.2" }
 
-# Local development: uncomment to build against the working tree instead of v0.3.1.
+# Local development: build against the working tree instead of v0.3.2.
 # [patch."https://github.com/sweet/sweet"]
 # sweet-core = { path = "../sweet/crates/sweet-core" }
 # sweet-tool-derive = { path = "../sweet/crates/sweet-tool-derive" }

@@ -57,12 +57,18 @@ async fn connect_mcp_servers(
 
         let connect = async {
             if server.is_stdio() {
-                let cmd = server.command.as_deref().unwrap();
+                let cmd = server
+                    .command
+                    .as_deref()
+                    .expect("is_stdio() guarantees command is set");
                 let args = server.args.clone().unwrap_or_default();
                 let env = server.env.clone().unwrap_or_default();
                 sweet_mcp::McpProvider::connect_stdio(name, cmd, &args, &env, &filter).await
             } else {
-                let url = server.url.as_deref().unwrap();
+                let url = server
+                    .url
+                    .as_deref()
+                    .expect("is_http() guarantees url is set");
                 let headers = server.headers.clone().unwrap_or_default();
                 sweet_mcp::McpProvider::connect_http(name, url, &headers, &filter).await
             }
