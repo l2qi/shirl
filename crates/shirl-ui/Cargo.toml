@@ -1,0 +1,31 @@
+[package]
+name = "shirl-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Terminal UI for the Shirl coding assistant."
+
+[dependencies]
+sweet-agent = { workspace = true }
+sweet-core = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt"] }
+crossterm = { workspace = true }
+ratatui = { workspace = true }
+unicode-width = { workspace = true }
+dirs = { workspace = true }
+serde_json = { workspace = true }
+arboard = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[features]
+default = ["clipboard-image"]
+# Clipboard image paste (Ctrl+V / Alt+V). Pulls in arboard + image; on
+# headless Linux without X11/Wayland the build still succeeds but the paste
+# operation reports "no clipboard available" at runtime.
+clipboard-image = ["dep:arboard", "dep:image"]
+
+[dev-dependencies]
+tempfile = { workspace = true }
+image = { workspace = true }

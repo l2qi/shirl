@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  RUSTDOCFLAGS: -Dwarnings
+
+jobs:
+  ci:
+    name: CI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install bubblewrap (Linux)
+        if: runner.os == 'Linux'
+        # Ubuntu 24.04 blocks unprivileged user namespaces by default
+        # (kernel.apparmor_restrict_unprivileged_userns=1).  This prevents
+        # bwrap from setting up its uid map.  Disable the restriction so
+        # the sandbox integration tests can run.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features --workspace
+
+      - name: Check compilation
+        run: cargo check --workspace
+
+      - name: Build shirl
+        run: cargo build -p shirl-cli
+
+      - name: Run tests
+        run: cargo test --workspace --all-features
+
+      - name: Check documentation
+        run: cargo doc --workspace --no-deps --all-features

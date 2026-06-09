@@ -1,0 +1,76 @@
+[workspace]
+members = [
+    "crates/shirl-core",
+    "crates/shirl-llm",
+    "crates/shirl-tools",
+    "crates/shirl-ui",
+    "crates/shirl-agents",
+    "crates/shirl-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.3.1"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+async-trait = "0.1"
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream", "query"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", default-features = false }
+tracing = "0.1"
+tracing-appender = { version = "0.2" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+anyhow = "1"
+schemars = "0.8"
+chrono = "0.4"
+tempfile = "3"
+crossterm = "0.28"
+dirs = "6"
+# `scrolling-regions` routes Terminal::insert_before through the diff-based
+# draw path, which skips wide-glyph continuation cells. Without it, CJK/emoji
+# in scrollback render an extra trailing space per glyph.
+ratatui = { version = "0.29", features = ["scrolling-regions"] }
+# Pin to the exact version ratatui depends on so our width calculations match
+# the cell allocation ratatui uses when rendering the buffer.
+unicode-width = "=0.2.0"
+ignore = "0.4"
+regex = "1"
+globset = "0.4"
+toml = "0.8"
+arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+
+# Sweet — pinned to the v0.3.3 release on GitHub.
+# For local development against the sister repo on disk, uncomment the
+# [patch] section below to override these with path deps.
+sweet-core = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
+sweet-agent = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
+sweet-llm = { git = "https://github.com/sweet/sweet", tag = "v0.3.3", default-features = false }
+sweet-tools = { git = "https://github.com/sweet/sweet", tag = "v0.3.3", default-features = false }
+sweet-session = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
+sweet-sandbox = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
+sweet-mcp = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
+
+# Local development: build against the working tree instead of v0.3.3.
+# [patch."https://github.com/sweet/sweet"]
+# sweet-core = { path = "../sweet/crates/sweet-core" }
+# sweet-tool-derive = { path = "../sweet/crates/sweet-tool-derive" }
+# sweet-agent = { path = "../sweet/crates/sweet-agent" }
+# sweet-llm = { path = "../sweet/crates/sweet-llm" }
+# sweet-tools = { path = "../sweet/crates/sweet-tools" }
+# sweet-session = { path = "../sweet/crates/sweet-session" }
+# sweet-sandbox = { path = "../sweet/crates/sweet-sandbox" }
+# sweet-mcp = { path = "../sweet/crates/sweet-mcp" }
+
+# Profile for CI release builds: strips symbols for smaller binaries.
+# The default `release` profile (used by `scripts/install.sh`) keeps symbols
+# intact so local builds produce readable panic backtraces.
+[profile.dist]
+inherits = "release"
+strip = true
