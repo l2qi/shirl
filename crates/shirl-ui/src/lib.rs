@@ -864,6 +864,31 @@ impl ReplIo {
         self.draw()
     }
 
+    /// Echo a submitted user prompt to scrollback with a blank separator.
+    ///
+    /// This is called from the main loop (not the input thread) so that any
+    /// pending cancel is processed first, ensuring `⏺ Cancelled` appears
+    /// *before* the prompt echo.
+    pub fn echo_prompt(&mut self, line: &str) -> sweet_core::Result<()> {
+        // Blank separator unless scrollback already ends with one.
+        if self.scrollback.last().is_none_or(|l| !l.is_empty()) {
+            self.insert_styled_line("", Style::default())?;
+        }
+        let mut iter = line.split('\n');
+        if let Some(first) = iter.next() {
+            self.insert_styled_line(&format!("{PROMPT_INDICATOR}{first}"), Style::default())?;
+        }
+        let indent = " ".repeat(PROMPT_INDICATOR_WIDTH as usize);
+        for cont in iter {
+            self.insert_styled_line(&format!("{indent}{cont}"), Style::default())?;
+        }
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            self.history.push(trimmed.to_string());
+        }
+        self.draw()
+    }
+
     /// Show a compact recap of the last few messages from a resumed session.
     ///
     /// Renders the last `RESUME_MAX_MESSAGES` user/assistant messages into
@@ -956,6 +981,11 @@ impl ReplIo {
     /// reading order), then prints the summary.
     pub fn show_cancelled(&mut self, repaired: bool) -> sweet_core::Result<()> {
         self.flush_active_tools_cancelled()?;
+        // Blank separator before the summary, unless scrollback already
+        // ends with one (avoids double-blanks after abort_cleanup, etc.).
+        if self.scrollback.last().is_none_or(|l| !l.is_empty()) {
+            self.insert_styled_line("", Style::default())?;
+        }
         let msg = if repaired {
             "⏺ Cancelled (repaired incomplete tool results)"
         } else {
@@ -1529,27 +1559,10 @@ impl ReplIo {
                         );
                         match outcome {
                             InputOutcome::Submit(line) => {
-                                // Echo submitted text to scrollback.
-                                // First line gets the › prompt indicator;
-                                // continuation lines are indented to align.
-                                let mut iter = line.split('\n');
-                                if let Some(first) = iter.next() {
-                                    let _ = io.insert_styled_line(
-                                        &format!("{PROMPT_INDICATOR}{first}"),
-                                        Style::default(),
-                                    );
-                                }
-                                let indent = " ".repeat(PROMPT_INDICATOR_WIDTH as usize);
-                                for cont in iter {
-                                    let _ = io.insert_styled_line(
-                                        &format!("{indent}{cont}"),
-                                        Style::default(),
-                                    );
-                                }
-                                let trimmed = line.trim();
-                                if !trimmed.is_empty() {
-                                    io.history.push(trimmed.to_string());
-                                }
+                                // The prompt echo is deferred to the main
+                                // loop (`ReplIo::echo_prompt`) so that any
+                                // pending cancel is displayed first.
+                                //
                                 // Submitting clears the buffer, so any open
                                 // file-picker is now stale — drop it before
                                 // redrawing.

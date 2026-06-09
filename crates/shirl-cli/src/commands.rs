@@ -65,6 +65,11 @@ pub(crate) async fn handle_chat_input(
     let agent = ctx.agent;
     let trimmed = line.trim();
     if trimmed.starts_with('/') {
+        // Echo slash commands immediately — no model to cancel first.
+        {
+            let mut io_guard = ctx.shared_io.lock().await;
+            io_guard.echo_prompt(line)?;
+        }
         if let Some((name, args)) = shirl_core::parse_slash_command(trimmed) {
             match name {
                 "model" => {
@@ -188,6 +193,13 @@ pub(crate) async fn handle_chat_input(
                 io_guard.show_cancelled(repaired)?;
                 io_guard.abort_cleanup()?;
             }
+        }
+
+        // Echo the prompt AFTER any running model is cancelled so that
+        // `⏺ Cancelled` appears above `› prompt`.
+        {
+            let mut io_guard = ctx.shared_io.lock().await;
+            io_guard.echo_prompt(line)?;
         }
 
         turn::spawn_user_turn(ctx, line, *active_agent, model_handle).await?;
