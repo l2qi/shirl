@@ -144,7 +144,7 @@ mod raw {
                         .clone()
                         .or_else(|| super::known_base_url(&p.id).map(|s| s.to_string()))?;
 
-                    let models: Vec<super::CatalogModel> = p
+                    let mut models: Vec<super::CatalogModel> = p
                         .models
                         .values()
                         .filter(|m| m.tool_call.unwrap_or(true))
@@ -168,6 +168,10 @@ mod raw {
                     if models.is_empty() {
                         return None;
                     }
+
+                    // `p.models` is a HashMap, so iteration order is otherwise
+                    // non-deterministic; sort by id for a stable catalog.
+                    models.sort_by(|a, b| a.id.cmp(&b.id));
 
                     Some(super::CatalogProvider {
                         id: p.id,
@@ -431,6 +435,29 @@ mod tests {
         assert!(!model_a.reasoning);
         let model_c = p.models.iter().find(|m| m.id == "model-c").unwrap();
         assert!(!model_c.reasoning);
+    }
+
+    #[test]
+    fn models_are_sorted_by_id() {
+        let json = r#"{
+            "p": {
+                "id": "p",
+                "name": "P",
+                "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1",
+                "env": [],
+                "models": {
+                    "gamma": { "id": "gamma", "name": "Gamma", "tool_call": true },
+                    "alpha": { "id": "alpha", "name": "Alpha", "tool_call": true },
+                    "beta":  { "id": "beta",  "name": "Beta",  "tool_call": true }
+                }
+            }
+        }"#;
+
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        let ids: Vec<&str> = providers[0].models.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, vec!["alpha", "beta", "gamma"]);
     }
 
     #[test]

@@ -265,6 +265,44 @@ async fn patch_applies_diff() {
 }
 
 #[tokio::test]
+async fn patch_tolerates_unprefixed_blank_context_line() {
+    let tools = Tools::new();
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("target.txt").to_str().unwrap().to_string();
+    std::fs::write(&path, "line one\n\nline three\n").unwrap();
+
+    // The blank context line is emitted with no leading space, as
+    // whitespace-trimming editors and many models produce.
+    let patch_text = "--- target.txt\n+++ target.txt\n@@ -1,3 +1,3 @@\n line one\n\n-line three\n+line three modified\n";
+
+    let tool = patch_tool(tools.fs.clone());
+    let result = tool
+        .call(serde_json::json!({"path": path, "patch": patch_text}))
+        .await
+        .unwrap();
+    assert!(result.contains("Patched"));
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(content, "line one\n\nline three modified\n");
+}
+
+#[tokio::test]
+async fn patch_preserves_crlf_line_endings() {
+    let tools = Tools::new();
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("target.txt").to_str().unwrap().to_string();
+    std::fs::write(&path, "line one\r\nline two\r\nline three\r\n").unwrap();
+
+    let patch_text = "--- target.txt\n+++ target.txt\n@@ -1,3 +1,3 @@\n line one\n-line two\n+line two modified\n line three\n";
+
+    let tool = patch_tool(tools.fs.clone());
+    tool.call(serde_json::json!({"path": path, "patch": patch_text}))
+        .await
+        .unwrap();
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(content, "line one\r\nline two modified\r\nline three\r\n");
+}
+
+#[tokio::test]
 async fn move_file_renames_within_dir() {
     let tools = Tools::new();
     let dir = TempDir::new().unwrap();

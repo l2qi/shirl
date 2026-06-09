@@ -115,6 +115,24 @@ impl ToolHandler for PatchHandler {
                                 .into(),
                             ));
                         }
+                    } else if hunk_line.is_empty() {
+                        // A blank line with no prefix. Canonical unified diffs
+                        // prefix empty context lines with a single space, but
+                        // patches (often model-generated) frequently drop it.
+                        // Treat a bare blank line as empty context.
+                        if source_idx < lines.len() && lines[source_idx].is_empty() {
+                            new_lines.push(String::new());
+                            source_idx += 1;
+                        } else {
+                            return Err(ToolError::Execution(
+                                format!(
+                                    "patch context mismatch at line {}: expected {:?}, got empty line",
+                                    source_idx + 1,
+                                    lines.get(source_idx),
+                                )
+                                .into(),
+                            ));
+                        }
                     } else if let Some(removed) = hunk_line.strip_prefix('-') {
                         if source_idx < lines.len() && lines[source_idx] == removed {
                             source_idx += 1;
@@ -147,9 +165,18 @@ impl ToolHandler for PatchHandler {
             source_idx += 1;
         }
 
-        let new_content = new_lines.join("\n");
+        // Preserve the file's dominant line ending rather than silently
+        // rewriting a CRLF file to LF. `lines()` strips `\r` from every line,
+        // so both the source and patch context compare cleanly; we only need
+        // to restore the ending when joining the result back together.
+        let eol = if content.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let new_content = new_lines.join(eol);
         let new_content = if content.ends_with('\n') && !new_content.ends_with('\n') {
-            new_content + "\n"
+            new_content + eol
         } else {
             new_content
         };

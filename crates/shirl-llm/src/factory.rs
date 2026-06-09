@@ -85,6 +85,11 @@ pub fn build_model(
             Arc::new(p)
         }
         Protocol::Gemini => {
+            // `reasoning` is intentionally not applied here: sweet's
+            // `GeminiProvider` exposes no thinking-config knob (its
+            // `generationConfig` carries only `max_output_tokens`), so there is
+            // nothing to toggle. Gemini still round-trips `thoughtSignature`
+            // values internally for multi-turn tool use.
             let mut p = sweet_llm::GeminiProvider::new(api_key).with_model(model_id);
             if !base_url.is_empty() {
                 p = p.with_base_url(base_url);

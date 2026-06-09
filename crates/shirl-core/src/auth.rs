@@ -61,13 +61,32 @@ impl AuthStore {
             std::fs::create_dir_all(parent)?;
         }
         let text = toml::to_string_pretty(self)?;
-        std::fs::write(path, &text)?;
+
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(path, perms)?;
+            use std::io::Write as _;
+            use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+
+            // Open (creating with 0o600) and truncate *before* writing any
+            // secret bytes. Creating with the mode avoids the brief
+            // world-readable window a write-then-chmod would leave on a new
+            // file; the explicit set_permissions then also tightens a
+            // pre-existing file whose mode predates this code.
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(path)
+                .with_context(|| format!("writing {}", path.display()))?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+            file.write_all(text.as_bytes())
+                .with_context(|| format!("writing {}", path.display()))?;
         }
+
+        #[cfg(not(unix))]
+        std::fs::write(path, &text).with_context(|| format!("writing {}", path.display()))?;
+
         Ok(())
     }
 
