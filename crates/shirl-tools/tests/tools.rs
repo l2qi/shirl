@@ -210,6 +210,35 @@ async fn glob_respects_gitignore() {
 }
 
 #[tokio::test]
+async fn glob_matches_relative_path_pattern() {
+    let tools = Tools::new();
+    let dir = TempDir::new().unwrap();
+    let base = dir.path();
+
+    std::fs::create_dir_all(base.join("scripts")).unwrap();
+    std::fs::write(base.join("scripts").join("install.sh"), "#!/bin/bash\n").unwrap();
+    std::fs::write(base.join("scripts").join("build.sh"), "#!/bin/bash\n").unwrap();
+    std::fs::create_dir(base.join(".git")).unwrap();
+
+    let tool = glob_tool(tools.fs.clone());
+    let result = tool
+        .call(serde_json::json!({
+            "pattern": "scripts/install.sh",
+            "path": base.to_str().unwrap()
+        }))
+        .await
+        .unwrap();
+    assert!(
+        result.contains("install.sh"),
+        "should match scripts/install.sh"
+    );
+    assert!(
+        !result.contains("build.sh"),
+        "should not match scripts/build.sh"
+    );
+}
+
+#[tokio::test]
 async fn patch_applies_diff() {
     let tools = Tools::new();
     let dir = TempDir::new().unwrap();
