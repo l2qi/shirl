@@ -3,12 +3,49 @@
 
 use anyhow::{Context, Result};
 use shirl_agents::agents::{self, AgentKind, ModeSwitch};
+use sweet_agent::Agent;
+use sweet_core::Model;
 use tokio::task::JoinHandle;
 
 use crate::mcp;
 use crate::model::resolve_web_search;
 use crate::RuntimeCtx;
 use shirl_llm::factory::build_model;
+use std::sync::Arc;
+
+/// Build a fresh agent: resolve web search → build → auto-compaction →
+/// media-strip → tracker.
+///
+/// Called from both [`apply_mode_switch`] and [`apply_model_switch`].
+/// The returned agent still needs its permission handle set by the caller
+/// under the agent mutex — this function performs **no** async work while
+/// holding any lock.
+async fn rebuild_agent(
+    ctx: &RuntimeCtx<'_>,
+    kind: AgentKind,
+    model: Arc<dyn Model>,
+    session: Box<dyn sweet_core::Session>,
+) -> Agent<Arc<dyn Model>> {
+    let web_search = resolve_web_search(kind, ctx.config, ctx.auth).await;
+    let mcp_specs = mcp::flatten_mcp_specs(ctx.mcp_providers);
+    let tracker = crate::tracking::load_tracker(session.id());
+    let new_agent = agents::build_agent(
+        kind,
+        model,
+        ctx.extensions,
+        web_search,
+        session,
+        &mcp_specs,
+        ctx.sandbox.clone(),
+    );
+    let new_agent =
+        shirl_core::install_auto_compaction(new_agent, shirl_core::CompactionConfig::default());
+    let new_agent = shirl_core::install_media_strip(new_agent);
+    match (kind, &tracker) {
+        (AgentKind::Main, Some(tracker)) => crate::tracking::attach(new_agent, tracker),
+        _ => new_agent,
+    }
+}
 
 pub(crate) async fn apply_mode_switch(
     mut switch: ModeSwitch,
@@ -28,10 +65,19 @@ pub(crate) async fn apply_mode_switch(
             .context("no model configured for this agent")?
     };
 
-    let web_search = resolve_web_search(switch.target, ctx.config, ctx.auth).await;
-    let mcp_specs = mcp::flatten_mcp_specs(ctx.mcp_providers);
-    let mut agent_guard = ctx.agent.lock().await;
-    let session = agent_guard.take_session();
+    let (session, session_id) = {
+        let mut agent_guard = ctx.agent.lock().await;
+        // Repair any orphaned tool calls left by the aborted turn before
+        // taking the session for the new agent. Without this, the session
+        // may contain an assistant message with unanswered tool calls that
+        // strict providers reject on the next request.
+        agent_guard.repair_orphaned_tool_calls()?;
+        let session = agent_guard.take_session();
+        let session_id = session.id().to_owned();
+        (session, session_id)
+    };
+    // Lock is released here — the async rebuild (resolve_web_search)
+    // runs without blocking other tasks that need ctx.agent.
 
     // Entering Main from Plan/Review with a directive means a report is being
     // handed over. Persist it to disk so it survives Main's history compaction,
@@ -41,7 +87,7 @@ pub(crate) async fn apply_mode_switch(
     // and MUST be preserved. Only when there's no assistant text (a model-driven
     // handoff whose payload itself is the report) do we treat step_with as the
     // report and let the model choose.
-    let tracker = crate::tracking::load_tracker(session.id());
+    let tracker = crate::tracking::load_tracker(&session_id);
     if switch.target == AgentKind::Main
         && matches!(*active_agent, AgentKind::Plan | AgentKind::Review)
         && switch.step_with.is_some()
@@ -67,28 +113,13 @@ pub(crate) async fn apply_mode_switch(
         }
     }
 
-    let new_agent = agents::build_agent(
-        switch.target,
-        model,
-        ctx.extensions,
-        web_search,
-        session,
-        &mcp_specs,
-        ctx.sandbox.clone(),
-    );
-    let new_agent =
-        shirl_core::install_auto_compaction(new_agent, shirl_core::CompactionConfig::default());
-    let new_agent = shirl_core::install_media_strip(new_agent);
-    let new_agent = match (switch.target, &tracker) {
-        (AgentKind::Main, Some(tracker)) => crate::tracking::attach(new_agent, tracker),
-        _ => new_agent,
-    };
-    // Preserve the permission handle across agent switches.
-    let handle = agent_guard.permission_handle();
-    let new_agent = new_agent.with_permission_handle(handle);
-    *agent_guard = new_agent;
+    let new_agent = rebuild_agent(ctx, switch.target, model, session).await;
+    {
+        let mut agent_guard = ctx.agent.lock().await;
+        let handle = agent_guard.permission_handle();
+        *agent_guard = new_agent.with_permission_handle(handle);
+    }
     *active_agent = switch.target;
-    drop(agent_guard);
 
     let mode_label = match switch.target {
         AgentKind::Main => None,
@@ -172,32 +203,18 @@ pub(crate) async fn apply_model_switch(
         let _ = h.await;
     }
 
-    {
-        let web_search = resolve_web_search(active_agent, ctx.config, ctx.auth).await;
-        let mcp_specs = mcp::flatten_mcp_specs(ctx.mcp_providers);
+    let session = {
         let mut agent_guard = ctx.agent.lock().await;
-        let session = agent_guard.take_session();
-        let tracker = crate::tracking::load_tracker(session.id());
-        let new_agent = agents::build_agent(
-            active_agent,
-            model,
-            ctx.extensions,
-            web_search,
-            session,
-            &mcp_specs,
-            ctx.sandbox.clone(),
-        );
-        let new_agent =
-            shirl_core::install_auto_compaction(new_agent, shirl_core::CompactionConfig::default());
-        let new_agent = shirl_core::install_media_strip(new_agent);
-        let new_agent = match (active_agent, &tracker) {
-            (AgentKind::Main, Some(tracker)) => crate::tracking::attach(new_agent, tracker),
-            _ => new_agent,
-        };
-        // Preserve the permission handle.
+        // Repair any orphaned tool calls left by the aborted turn.
+        agent_guard.repair_orphaned_tool_calls()?;
+        agent_guard.take_session()
+    };
+    // Lock released before async rebuild.
+    let new_agent = rebuild_agent(ctx, active_agent, model, session).await;
+    {
+        let mut agent_guard = ctx.agent.lock().await;
         let handle = agent_guard.permission_handle();
-        let new_agent = new_agent.with_permission_handle(handle);
-        *agent_guard = new_agent;
+        *agent_guard = new_agent.with_permission_handle(handle);
     }
 
     let mut io_guard = ctx.shared_io.lock().await;

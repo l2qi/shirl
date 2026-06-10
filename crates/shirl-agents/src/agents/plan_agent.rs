@@ -3,17 +3,15 @@
 
 use std::sync::Arc;
 
-use sweet_agent::{Agent, ExtensionRegistry, ToolCapabilities};
+use sweet_agent::{Agent, ExtensionRegistry};
 use sweet_core::sandbox::Sandbox;
 use sweet_core::{Model, Session};
 use sweet_tools::HttpFetch;
 
-use super::{handoff_to_main, mcp_capabilities, with_web_search, SharedWebSearchBackend};
-use crate::subagents::{explore::explore_spec, web_research::web_research_spec};
-use shirl_tools::{
-    directory_size_tool, directory_tree_tool, get_file_info_tool, glob_tool, grep_tool,
-    head_file_tool, list_directory_tool, read_file_tool, tail_file_tool,
+use super::{
+    handoff_to_main, mcp_capabilities, read_only_tools, with_web_search, SharedWebSearchBackend,
 };
+use crate::subagents::{explore::explore_spec, web_research::web_research_spec};
 
 const PLAN_PROMPT: &str =
     "You are Shirl's planning agent. You produce numbered implementation plans. \
@@ -42,17 +40,7 @@ pub fn build(
 ) -> Agent<Arc<dyn Model>> {
     let fs = sandbox.fs();
 
-    let tools = ToolCapabilities::new("plan")
-        .with_tool(read_file_tool(fs.clone()))
-        .with_tool(glob_tool(fs.clone()))
-        .with_tool(grep_tool(fs.clone()))
-        .with_tool(directory_tree_tool(fs.clone()))
-        .with_tool(list_directory_tool(fs.clone()))
-        .with_tool(get_file_info_tool(fs.clone()))
-        .with_tool(directory_size_tool(fs.clone()))
-        .with_tool(head_file_tool(fs.clone()))
-        .with_tool(tail_file_tool(fs.clone()))
-        .with_tool(HttpFetch::default());
+    let tools = read_only_tools(fs).with_tool(HttpFetch::default());
     let tools = with_web_search(tools, web_search.clone());
     let mcp_tools = mcp_capabilities(mcp_specs);
 

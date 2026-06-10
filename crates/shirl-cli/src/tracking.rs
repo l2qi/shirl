@@ -46,6 +46,7 @@ pub(crate) fn headless_tracking(tracker: PlanTracker) -> Tracking {
         todos_tool: tracker.write_todos_tool(),
         reminder: tracker.dynamic_prompt(),
         store: Arc::new(CliReportStore(tracker)),
+        worker_post_build: None,
     }
 }
 

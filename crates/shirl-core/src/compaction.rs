@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use sweet_agent::{Agent, Capability, CommandContext, HookEvent, ProcedureSpec};
-use sweet_core::{MemoryItem, Message, Model, Result};
+use sweet_core::{MemoryItem, Message, Model, Result, Role};
 
 use crate::hooks::AutoCompactionProcedure;
 
@@ -40,6 +40,114 @@ pub fn install_auto_compaction<M: Model>(agent: Agent<M>, config: CompactionConf
     ])
 }
 
+/// Adjust `preserve_recent` so the compaction boundary does not split an
+/// assistant-with-tool-calls / tool-result pair.
+///
+/// If the boundary lands between an assistant message carrying `tool_calls`
+/// and its `Role::Tool` result, the preserved tail would start with a tool
+/// result whose carrier was summarized away — a dangling reference that
+/// strict providers reject. This function nudges `preserve_recent` upward
+/// until the boundary no longer splits any such pair.
+pub(crate) fn adjusted_preserve_count(items: &[MemoryItem], preserve_recent: usize) -> usize {
+    let len = items.len();
+    if preserve_recent >= len || preserve_recent == 0 {
+        return preserve_recent;
+    }
+
+    let mut preserve = preserve_recent;
+    loop {
+        let boundary = len - preserve;
+        if boundary == 0 {
+            break;
+        }
+
+        let split = match (items.get(boundary - 1), items.get(boundary)) {
+            (Some(MemoryItem::Message(before)), Some(MemoryItem::Message(after))) => {
+                // Case 1: the last summarized item is an assistant with
+                // tool_calls, and the first preserved item is a tool result
+                // for those calls → split.
+                (before.role == Role::Assistant && !before.tool_calls.is_empty())
+                // Case 2: the first preserved item is a tool result whose
+                // carrier is in the summarized range → split.
+                || after.role == Role::Tool
+            }
+            _ => false,
+        };
+
+        if split && preserve < len {
+            preserve += 1;
+        } else {
+            break;
+        }
+    }
+
+    preserve
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+    use sweet_core::ToolCall;
+
+    #[test]
+    fn no_adjustment_when_no_split() {
+        let items = vec![
+            MemoryItem::Message(Message::user("hello")),
+            MemoryItem::Message(Message::assistant("world")),
+            MemoryItem::Message(Message::user("keep")),
+            MemoryItem::Message(Message::assistant("this")),
+        ];
+        assert_eq!(adjusted_preserve_count(&items, 2), 2);
+    }
+
+    #[test]
+    fn nudges_past_tool_result_at_boundary() {
+        let items = vec![
+            MemoryItem::Message(Message::user("hello")),
+            MemoryItem::Message(Message {
+                tool_calls: vec![ToolCall {
+                    id: "c1".into(),
+                    name: "read".into(),
+                    arguments: serde_json::json!({}),
+                }],
+                ..Message::assistant("thinking")
+            }),
+            MemoryItem::Message(Message::tool_result("c1", "result")),
+            MemoryItem::Message(Message::user("keep")),
+        ];
+        // boundary=2 lands on tool_result whose carrier is at index 1.
+        // Should nudge to preserve=3 so the tool result stays with its carrier.
+        assert_eq!(adjusted_preserve_count(&items, 2), 3);
+    }
+
+    #[test]
+    fn nudges_past_assistant_with_tool_calls() {
+        let items = vec![
+            MemoryItem::Message(Message::user("hello")),
+            MemoryItem::Message(Message {
+                tool_calls: vec![ToolCall {
+                    id: "c1".into(),
+                    name: "read".into(),
+                    arguments: serde_json::json!({}),
+                }],
+                ..Message::assistant("thinking")
+            }),
+            MemoryItem::Message(Message::tool_result("c1", "result")),
+            MemoryItem::Message(Message::user("keep")),
+        ];
+        // preserve_recent=2 → boundary=2, items[1] is assistant with tool_calls
+        // (last summarized), items[2] is tool_result (first preserved) → split.
+        // Should nudge to preserve=3.
+        assert_eq!(adjusted_preserve_count(&items, 2), 3);
+    }
+
+    #[test]
+    fn no_adjustment_when_preserve_equals_len() {
+        let items = vec![MemoryItem::Message(Message::user("only"))];
+        assert_eq!(adjusted_preserve_count(&items, 1), 1);
+    }
+}
+
 pub async fn compact_session(
     ctx: &mut dyn CommandContext,
     preserve_recent: usize,
@@ -49,6 +157,7 @@ pub async fn compact_session(
     if items.len() <= preserve_recent {
         return Ok(());
     }
+    let preserve_recent = crate::compaction::adjusted_preserve_count(&items, preserve_recent);
     let range = 0..(items.len() - preserve_recent);
 
     let summary_prompt = build_compaction_prompt(&items[range.clone()], hint);

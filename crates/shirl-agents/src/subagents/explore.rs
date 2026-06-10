@@ -70,14 +70,14 @@ impl SubagentHandler for ExploreHandler {
         let input: ExploreInput = serde_json::from_value(args)?;
         let fs = self.sandbox.fs();
         run_leaf("explore", EXPLORE_PROMPT, input.goal, ctx, |a| {
-            a.with_tool(glob_tool(fs.clone()))
+            a.with_tool(read_file_tool(fs.clone()))
+                .with_tool(glob_tool(fs.clone()))
                 .with_tool(grep_tool(fs.clone()))
-                .with_tool(read_file_tool(fs.clone()))
                 .with_tool(head_file_tool(fs.clone()))
                 .with_tool(tail_file_tool(fs.clone()))
                 .with_tool(directory_tree_tool(fs.clone()))
                 .with_tool(list_directory_tool(fs.clone()))
-                .with_tool(get_file_info_tool(fs.clone()))
+                .with_tool(get_file_info_tool(fs))
         })
         .await
     }
