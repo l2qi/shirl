@@ -3,19 +3,14 @@
 
 use std::sync::Arc;
 
-use sweet_agent::{Agent, ExtensionRegistry, ToolCapabilities};
+use sweet_agent::{Agent, ExtensionRegistry};
 use sweet_core::sandbox::Sandbox;
 use sweet_core::tool::ToolSpec;
 use sweet_core::SharedSession;
 use sweet_core::{Model, Session};
 
-use crate::agents::{mcp_capabilities, SharedWebSearchBackend};
+use crate::agents::{mcp_capabilities, read_only_tools, SharedWebSearchBackend};
 use crate::headless::{implement_sub, plan_sub, review_sub, Tracking, WorkerDeps};
-
-use shirl_tools::{
-    directory_size_tool, directory_tree_tool, get_file_info_tool, glob_tool, grep_tool,
-    head_file_tool, list_directory_tool, read_file_tool, tail_file_tool,
-};
 
 pub const ORCHESTRATOR_PROMPT: &str =
     "You are Shirl, a coding assistant. In headless mode you orchestrate \
@@ -64,16 +59,7 @@ pub(crate) fn build(
 ) -> Agent<Arc<dyn Model>> {
     let fs = sandbox.fs();
 
-    let read_only_tools = ToolCapabilities::new("orchestrator")
-        .with_tool(read_file_tool(fs.clone()))
-        .with_tool(glob_tool(fs.clone()))
-        .with_tool(grep_tool(fs.clone()))
-        .with_tool(directory_tree_tool(fs.clone()))
-        .with_tool(list_directory_tool(fs.clone()))
-        .with_tool(get_file_info_tool(fs.clone()))
-        .with_tool(directory_size_tool(fs.clone()))
-        .with_tool(head_file_tool(fs.clone()))
-        .with_tool(tail_file_tool(fs.clone()));
+    let read_only_tools = read_only_tools(fs);
     let mcp_tools = mcp_capabilities(mcp_specs);
     // One Arc'd vec shared by all three worker specs — avoids three full
     // `Vec<ToolSpec>` clones each time the orchestrator is built.
@@ -92,6 +78,7 @@ pub(crate) fn build(
         web_search,
         mcp_specs: shared_mcp_specs,
         parent_session: session_handle,
+        post_build: tracking.worker_post_build.clone(),
     };
 
     Agent::new_shared(model)

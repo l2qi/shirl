@@ -123,6 +123,24 @@ pub(crate) async fn handle_chat_input(
                         // shadow a built-in (the router drops colliding names),
                         // so this check is safe before the action path.
                         if let Some(template) = commands.template(name) {
+                            // Cancel any in-flight turn before spawning the
+                            // template-driven turn — same sequence as plain
+                            // text input. Without this the old task keeps
+                            // running detached, holding the agent mutex and
+                            // interleaving output.
+                            if let Some(h) = model_handle.take() {
+                                h.abort();
+                                let _ = h.await;
+                                let repaired = {
+                                    let mut agent_guard = agent.lock().await;
+                                    agent_guard.repair_orphaned_tool_calls()?
+                                };
+                                {
+                                    let mut io_guard = ctx.shared_io.lock().await;
+                                    io_guard.show_cancelled(repaired)?;
+                                    io_guard.abort_cleanup()?;
+                                }
+                            }
                             let rendered =
                                 shirl_core::custom_commands::render_template(template, args);
                             turn::spawn_user_turn(ctx, &rendered, *active_agent, model_handle)

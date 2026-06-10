@@ -5,6 +5,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -49,6 +50,9 @@ impl History {
         else {
             return;
         };
+        // Restrict to owner read/write only — history may contain sensitive
+        // data if redaction is ever incomplete.
+        let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
         for line in &self.entries {
             let _ = writeln!(file, "{line}");
         }

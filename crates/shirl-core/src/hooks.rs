@@ -53,7 +53,9 @@ impl AutoCompactionProcedure {
         if items.len() <= self.preserve_recent {
             return Ok(());
         }
-        let range = 0..(items.len() - self.preserve_recent);
+        let preserve_recent =
+            crate::compaction::adjusted_preserve_count(&items, self.preserve_recent);
+        let range = 0..(items.len() - preserve_recent);
 
         let summary_prompt =
             crate::compaction::build_compaction_prompt(&items[range.clone()], None);

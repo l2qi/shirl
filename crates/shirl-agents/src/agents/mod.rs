@@ -14,6 +14,11 @@ use sweet_core::tool::ToolError;
 use sweet_core::{Model, Session};
 use sweet_tools::{WebSearch, WebSearchBackend};
 
+use shirl_tools::{
+    directory_size_tool, directory_tree_tool, get_file_info_tool, glob_tool, grep_tool,
+    head_file_tool, list_directory_tool, read_file_tool, tail_file_tool,
+};
+
 /// Shared handle to a web-search backend. Cloning yields another reference
 /// to the same backend instance, so the parent agent's `WebSearch` tool and
 /// the `web_research` subagent can both use it without duplication.
@@ -137,6 +142,26 @@ pub fn resolve_mode_command(name: &str, args: &str, current: AgentKind) -> ModeC
         }
         _ => ModeCommand::NotModeCommand,
     }
+}
+
+/// Shared read-only tool set used by plan, review, orchestrator, and explore.
+///
+/// Eliminates the four-way duplication of the same tool list by
+/// centralising the read-only baseline. Callers add their own extras
+/// (e.g. `HttpFetch`, `WebSearch`) on top.
+pub(crate) fn read_only_tools(
+    fs: std::sync::Arc<dyn sweet_core::sandbox::Filesystem>,
+) -> ToolCapabilities {
+    ToolCapabilities::new("read-only")
+        .with_tool(read_file_tool(fs.clone()))
+        .with_tool(glob_tool(fs.clone()))
+        .with_tool(grep_tool(fs.clone()))
+        .with_tool(directory_tree_tool(fs.clone()))
+        .with_tool(list_directory_tool(fs.clone()))
+        .with_tool(get_file_info_tool(fs.clone()))
+        .with_tool(directory_size_tool(fs.clone()))
+        .with_tool(head_file_tool(fs.clone()))
+        .with_tool(tail_file_tool(fs))
 }
 
 pub fn build_agent(

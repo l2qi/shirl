@@ -40,6 +40,10 @@ pub struct Tracking {
     pub todos_tool: ToolSpec,
     pub reminder: Arc<dyn DynamicPrompt>,
     pub store: Arc<dyn ReportStore>,
+    /// Optional post-build hook applied to each worker agent after
+    /// construction. The binary fills this with auto-compaction installation
+    /// so workers don't exceed the context window on long tool-call chains.
+    pub worker_post_build: Option<WorkerPostBuild>,
 }
 
 /// The shared dependencies every headless worker needs to build its child
@@ -54,7 +58,17 @@ pub(crate) struct WorkerDeps {
     pub web_search: Option<SharedWebSearchBackend>,
     pub mcp_specs: Arc<Vec<ToolSpec>>,
     pub parent_session: SharedSessionHandle,
+    /// Optional post-build hook applied to each worker agent after
+    /// construction. The binary fills this with auto-compaction installation
+    /// so workers don't exceed the context window on long tool-call chains.
+    pub post_build: Option<WorkerPostBuild>,
 }
+
+/// Post-build hook applied to each worker agent after construction.
+/// The binary fills this with auto-compaction installation so workers
+/// don't exceed the context window on long tool-call chains.
+pub type WorkerPostBuild =
+    Arc<dyn Fn(Agent<Arc<dyn Model>>) -> Agent<Arc<dyn Model>> + Send + Sync>;
 
 pub fn build_orchestrator(
     model: Arc<dyn Model>,
@@ -99,6 +113,9 @@ pub(crate) async fn run_worker_turn(
         &deps.mcp_specs,
         deps.sandbox.clone(),
     );
+    if let Some(post_build) = &deps.post_build {
+        agent = post_build(agent);
+    }
     for tool in extra_tools {
         agent = agent.with_tool(tool);
     }
@@ -225,6 +242,7 @@ mod tests {
             web_search: None,
             mcp_specs: Arc::new(Vec::new()),
             parent_session,
+            post_build: None,
         }
     }
 

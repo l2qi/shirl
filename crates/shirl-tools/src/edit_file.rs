@@ -81,6 +81,15 @@ impl ToolHandler for EditFileHandler {
         let mut result = content.clone();
 
         for (i, edit) in edits.iter().enumerate() {
+            if edit.old_text.is_empty() {
+                return Err(ToolError::Execution(
+                    format!(
+                        "edit {}: old_text must not be empty — provide the exact text to replace",
+                        i + 1
+                    )
+                    .into(),
+                ));
+            }
             let count = result.matches(&edit.old_text).count();
             if count == 0 {
                 return Err(ToolError::Execution(
@@ -129,6 +138,11 @@ impl ToolHandler for EditFileHandler {
 /// Maximum number of diff output lines before truncation.
 const DIFF_LINE_CAP: usize = 200;
 
+/// Maximum distance (in lines) to search forward for a resynchronization
+/// point. Caps the O(old × new) search per hunk to O(MAX_SYNC_WINDOW²),
+/// preventing stalls when diffing large files with extensive changes.
+const MAX_SYNC_WINDOW: usize = 100;
+
 /// Number of unchanged context lines shown before and after each hunk.
 const CONTEXT_LINES: usize = 3;
 
@@ -170,8 +184,8 @@ pub fn unified_diff(old: &str, new: &str, path: &str) -> String {
         let mut hunk_old_end = old_lines.len();
         let mut hunk_new_end = new_lines.len();
 
-        'outer: for oe in old_idx..=old_lines.len() {
-            for ne in new_idx..=new_lines.len() {
+        'outer: for oe in old_idx..=(old_idx + MAX_SYNC_WINDOW).min(old_lines.len()) {
+            for ne in new_idx..=(new_idx + MAX_SYNC_WINDOW).min(new_lines.len()) {
                 let remaining_old = old_lines.len() - oe;
                 let remaining_new = new_lines.len() - ne;
                 if remaining_old == 0 && remaining_new == 0 {

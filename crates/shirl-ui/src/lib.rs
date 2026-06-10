@@ -883,7 +883,7 @@ impl ReplIo {
             self.insert_styled_line(&format!("{indent}{cont}"), Style::default())?;
         }
         let trimmed = line.trim();
-        if !trimmed.is_empty() {
+        if !trimmed.is_empty() && !is_history_sensitive(trimmed) {
             self.history.push(trimmed.to_string());
         }
         self.draw()
@@ -1793,4 +1793,19 @@ impl AgentIo for ReplIo {
 
 pub(crate) fn io_err<E: std::fmt::Display>(e: E) -> sweet_core::Error {
     sweet_core::Error::Io(io::Error::other(e.to_string()))
+}
+
+/// Returns true if `line` is a slash command whose arguments may contain
+/// secrets that should not be persisted to history (e.g. `/provider <id> <api-key>`).
+fn is_history_sensitive(line: &str) -> bool {
+    let trimmed = line.trim();
+    // /provider with two arguments includes the API key.
+    // /provider --remove or bare /provider (interactive) are safe.
+    if let Some(args) = trimmed.strip_prefix("/provider") {
+        let args = args.trim();
+        if !args.is_empty() && !args.starts_with("--remove") {
+            return true;
+        }
+    }
+    false
 }

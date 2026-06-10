@@ -134,22 +134,24 @@ impl ShirlConfig {
         provider: impl Into<String>,
         model: impl Into<String>,
     ) {
+        let web_search = self.agents.get(agent).and_then(|a| a.web_search.clone());
         self.agents.insert(
             agent.to_string(),
             AgentModelConfig {
                 provider: provider.into(),
                 model: model.into(),
-                web_search: None,
+                web_search,
             },
         );
     }
 
     /// Update the default config.
     pub fn set_default(&mut self, provider: impl Into<String>, model: impl Into<String>) {
+        let web_search = self.default.web_search.take();
         self.default = AgentModelConfig {
             provider: provider.into(),
             model: model.into(),
-            web_search: None,
+            web_search,
         };
     }
 }
@@ -280,5 +282,30 @@ context_window = 8192
         let config = ShirlConfig::default();
         config.save(&path).unwrap();
         assert!(path.exists());
+    }
+
+    #[test]
+    fn set_default_preserves_web_search() {
+        let mut config = ShirlConfig::default();
+        config.set_default("anthropic", "model-a");
+        config.default.web_search = Some("tavily".to_string());
+        // Switching model should preserve the web_search setting.
+        config.set_default("openai", "model-b");
+        assert_eq!(config.default.provider, "openai");
+        assert_eq!(config.default.model, "model-b");
+        assert_eq!(config.default.web_search.as_deref(), Some("tavily"));
+    }
+
+    #[test]
+    fn set_agent_model_preserves_web_search() {
+        let mut config = ShirlConfig::default();
+        config.set_agent_model("plan", "anthropic", "model-a");
+        config.agents.get_mut("plan").unwrap().web_search = Some("brave".to_string());
+        // Switching model should preserve the web_search setting.
+        config.set_agent_model("plan", "openai", "model-b");
+        let plan = &config.agents["plan"];
+        assert_eq!(plan.provider, "openai");
+        assert_eq!(plan.model, "model-b");
+        assert_eq!(plan.web_search.as_deref(), Some("brave"));
     }
 }

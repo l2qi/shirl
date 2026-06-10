@@ -47,6 +47,7 @@ impl ToolHandler for PatchHandler {
 
         let mut new_lines = Vec::new();
         let mut patch_lines = args.patch.lines().peekable();
+        let mut first_hunk = true;
 
         while let Some(line) = patch_lines.peek() {
             if line.starts_with("@@") {
@@ -77,13 +78,14 @@ impl ToolHandler for PatchHandler {
                     .parse()
                     .map_err(|e| ToolError::Execution(format!("invalid hunk start: {e}").into()))?;
 
-                if new_lines.is_empty() {
+                if first_hunk {
                     for i in 0..(start.saturating_sub(1)) {
                         if i < lines.len() {
                             new_lines.push(lines[i].to_string());
                         }
                     }
                     source_idx = start.saturating_sub(1);
+                    first_hunk = false;
                 } else {
                     while source_idx < start.saturating_sub(1) && source_idx < lines.len() {
                         new_lines.push(lines[source_idx].to_string());
