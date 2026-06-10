@@ -222,10 +222,9 @@ pub async fn run_headless(
         .map(crate::tracking::headless_tracking)
         .context("could not resolve session directory for workflow tracker")?;
 
-    let worker_post_build: shirl_agents::headless::WorkerPostBuild =
-        std::sync::Arc::new(|agent| {
-            shirl_core::install_auto_compaction(agent, shirl_core::CompactionConfig::default())
-        });
+    let worker_post_build: shirl_agents::headless::WorkerPostBuild = std::sync::Arc::new(|agent| {
+        shirl_core::install_auto_compaction(agent, shirl_core::CompactionConfig::default())
+    });
     tracking.worker_post_build = Some(worker_post_build);
 
     let mut agent = headless::build_orchestrator(
