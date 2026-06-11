@@ -128,9 +128,10 @@ cargo doc --workspace --no-deps --all-features
 
 ## Git hygiene
 
+- **Never run `git commit` or `git push` (or open a PR) without the owner's explicit approval.** A green pre-commit checklist is a prerequisite, not authorization.
+- Do not amend or rewrite an existing commit on your own initiative — the owner may have pushed it. Default to a follow-up commit; if amending seems like the better call, ask first.
 - Do not skip hooks (`--no-verify`). Fix the underlying issue.
 - Write commit messages in the imperative mood, ≤ 72 chars for the subject.
-- Never push or open a PR without explicit instruction.
 
 ## Crate-by-crate quick reference
 
