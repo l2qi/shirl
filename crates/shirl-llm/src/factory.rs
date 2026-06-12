@@ -100,6 +100,40 @@ pub fn build_model(
     Ok(apply_context_window(model, context_window))
 }
 
+/// Build an `Arc<dyn Embedder>` for semantic memory recall from a resolved
+/// protocol, base URL, and API key.
+///
+/// Only the OpenAI and Gemini protocols offer embedding endpoints; Anthropic
+/// does not, so configs pointing an embedder at an Anthropic-protocol
+/// provider are rejected with a clear error.
+pub fn build_embedder(
+    protocol: Protocol,
+    model_id: &str,
+    base_url: &str,
+    api_key: &str,
+) -> anyhow::Result<Arc<dyn sweet_core::Embedder>> {
+    match protocol {
+        Protocol::OpenAI => {
+            let mut e = sweet_llm::OpenAIEmbedder::new(api_key).with_model(model_id);
+            if !base_url.is_empty() {
+                e = e.with_base_url(base_url);
+            }
+            Ok(Arc::new(e))
+        }
+        Protocol::Gemini => {
+            let mut e = sweet_llm::GeminiEmbedder::new(api_key).with_model(model_id);
+            if !base_url.is_empty() {
+                e = e.with_base_url(base_url);
+            }
+            Ok(Arc::new(e))
+        }
+        Protocol::Anthropic => anyhow::bail!(
+            "provider protocol `anthropic` has no embeddings API — \
+             configure an openai- or gemini-protocol embedder"
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

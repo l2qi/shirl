@@ -13,4 +13,4 @@ pub mod catalog;
 pub mod factory;
 
 pub use catalog::{Catalog, CatalogModel, CatalogProvider, Protocol};
-pub use factory::build_model;
+pub use factory::{build_embedder, build_model};

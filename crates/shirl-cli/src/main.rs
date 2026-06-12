@@ -25,6 +25,7 @@ mod commands;
 mod file_picker;
 mod headless;
 mod mcp;
+mod memory_cmd;
 mod model;
 mod picker;
 mod switch;
@@ -50,6 +51,7 @@ struct RuntimeCtx<'a> {
     catalog: &'a Catalog,
     mcp_providers: &'a [sweet_mcp::McpProvider],
     sandbox: &'a Arc<dyn Sandbox>,
+    memory: &'a Option<shirl_agents::MemoryWiring>,
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +260,23 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     };
 
     let session_id = session.id().clone();
+    let memory_wiring = {
+        let config_guard = config.lock().await;
+        let auth_guard = auth.lock().await;
+        let cwd = std::env::current_dir().context("get cwd")?;
+        let (wiring, warnings) = memory_cmd::build_wiring(
+            &config_guard,
+            &auth_guard,
+            &catalog,
+            &session_id.to_string(),
+            &cwd,
+        );
+        if !warnings.is_empty() {
+            let mut io_guard = io.lock().await;
+            io_guard.insert_lines(&warnings)?;
+        }
+        wiring
+    };
     let agent = agents::build_agent(
         AgentKind::Main,
         main_model,
@@ -266,6 +285,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
         Box::new(session),
         &mcp_specs,
         sandbox.clone(),
+        memory_wiring.as_ref(),
     );
     let agent = shirl_core::install_auto_compaction(agent, shirl_core::CompactionConfig::default());
     let agent = shirl_core::install_media_strip(agent);
@@ -348,6 +368,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
         catalog: &catalog,
         mcp_providers: &mcp_providers,
         sandbox: &sandbox,
+        memory: &memory_wiring,
     };
 
     // Drives viewport redraws while a turn is in flight: animates the
@@ -399,6 +420,15 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                     if let Some(h) = model_handle.take() {
                         h.abort();
                         let _ = h.await;
+                    }
+                    // Flush undistilled memories before quitting; bounded by
+                    // one model call, and a no-op when the watermark is
+                    // current.
+                    if let Some(distiller) =
+                        memory_wiring.as_ref().and_then(|w| w.distiller.as_ref())
+                    {
+                        let mut agent_guard = agent.lock().await;
+                        distiller.run_now(&mut *agent_guard).await;
                     }
                     break;
                 }

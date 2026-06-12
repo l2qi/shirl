@@ -9,6 +9,7 @@ description = "Agent definitions, prompts, and tool wiring for the Shirl coding 
 [dependencies]
 sweet-agent = { workspace = true }
 sweet-core = { workspace = true, features = ["derive"] }
+sweet-memory = { workspace = true }
 sweet-tools = { workspace = true, default-features = false, features = ["calculator", "http-fetch", "web-search"] }
 shirl-tools = { path = "../shirl-tools" }
 serde = { workspace = true }

@@ -227,6 +227,23 @@ pub async fn run_headless(
     });
     tracking.worker_post_build = Some(worker_post_build);
 
+    let memory_wiring = {
+        let config_guard = config.lock().await;
+        let auth_guard = auth.lock().await;
+        let cwd = std::env::current_dir().context("get cwd")?;
+        let (wiring, warnings) = crate::memory_cmd::build_wiring(
+            &config_guard,
+            &auth_guard,
+            &catalog,
+            &session_id.to_string(),
+            &cwd,
+        );
+        for warning in warnings {
+            eprintln!("{warning}");
+        }
+        wiring
+    };
+
     let mut agent = headless::build_orchestrator(
         main_model,
         extensions,
@@ -235,6 +252,7 @@ pub async fn run_headless(
         &mcp_specs,
         sandbox,
         tracking,
+        memory_wiring.as_ref(),
     );
     agent = shirl_core::install_auto_compaction(agent, shirl_core::CompactionConfig::default());
     agent = shirl_core::install_media_strip(agent);
@@ -243,6 +261,10 @@ pub async fn run_headless(
     // Run a single turn with the user's prompt.
     let mut io = HeadlessIo;
     let turn_result = agent.step_stream(prompt, &mut io).await;
+
+    if let Some(distiller) = memory_wiring.as_ref().and_then(|w| w.distiller.as_ref()) {
+        distiller.run_now(&mut agent).await;
+    }
 
     // The model's authoritative final reply lives on `TurnResult::Message`;
     // streaming deltas span multiple inner-loop iterations and would

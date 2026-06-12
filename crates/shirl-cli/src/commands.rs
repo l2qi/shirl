@@ -87,6 +87,9 @@ pub(crate) async fn handle_chat_input(
                     let mut io_guard = ctx.shared_io.lock().await;
                     io_guard.insert_lines(&lines)?;
                 }
+                "memory" => {
+                    crate::memory_cmd::handle_memory_command(args, ctx).await?;
+                }
                 "help" => {
                     let mut io_guard = ctx.shared_io.lock().await;
                     io_guard.insert_lines(&[
@@ -147,6 +150,15 @@ pub(crate) async fn handle_chat_input(
                                 .await?;
                         } else {
                             let mut agent_guard = agent.lock().await;
+                            // `/new` rotates the session away: flush undistilled
+                            // memories from the outgoing transcript first.
+                            if name == "new" {
+                                if let Some(distiller) =
+                                    ctx.memory.as_ref().and_then(|w| w.distiller.as_ref())
+                                {
+                                    distiller.run_now(&mut *agent_guard).await;
+                                }
+                            }
                             // Snapshot the session id before invoking the command;
                             // `/new` swaps it, `/clear` keeps it but wipes items.
                             // Either case invalidates the current title — we

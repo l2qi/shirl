@@ -41,6 +41,10 @@ pub fn built_in_commands() -> Vec<CommandInfo> {
             description: "apply review fixes".into(),
         },
         CommandInfo {
+            name: "memory".into(),
+            description: "list, add, search, or forget long-term memories".into(),
+        },
+        CommandInfo {
             name: "model".into(),
             description: "show or switch model".into(),
         },

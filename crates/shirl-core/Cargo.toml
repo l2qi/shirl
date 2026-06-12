@@ -10,6 +10,7 @@ description = "Core logic for the Shirl coding assistant."
 sweet-core = { workspace = true, features = ["derive"] }
 sweet-agent = { workspace = true }
 sweet-session = { workspace = true, features = ["sqlite"] }
+sweet-memory = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
