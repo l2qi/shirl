@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use shirl_core::ShirlConfig;
@@ -36,11 +35,6 @@ mod turn;
 use file_picker::FileListCache;
 use model::ModelStore;
 
-/// Viewport redraw cadence while a turn (model call or slow slash command) is
-/// in flight. 150 ms ≈ 17 frames per breath cycle for the `⏺` indicator —
-/// smooth without burning cycles.
-const REDRAW_INTERVAL: Duration = Duration::from_millis(150);
-
 struct RuntimeCtx<'a> {
     agent: &'a Arc<Mutex<Agent<Arc<dyn Model>>>>,
     shared_io: &'a SharedIo,
@@ -52,6 +46,7 @@ struct RuntimeCtx<'a> {
     mcp_providers: &'a [sweet_mcp::McpProvider],
     sandbox: &'a Arc<dyn Sandbox>,
     memory: &'a Option<shirl_agents::MemoryWiring>,
+    distill_task: &'a memory_cmd::DistillTask,
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +346,9 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
 
     let mut active_agent = AgentKind::Main;
     let mut model_handle: Option<JoinHandle<sweet_core::Result<TurnResult>>> = None;
+    // Most recent background distill pass; `/memory distill` joins it before
+    // claiming the remainder.
+    let distill_task = memory_cmd::DistillTask::default();
     // Tracks which session has had a title generated. `/new` swaps the session
     // id (so we'll regenerate); `/clear` keeps the id but wipes history (we
     // detect that separately by emptying this on the next command).
@@ -369,12 +367,13 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
         mcp_providers: &mcp_providers,
         sandbox: &sandbox,
         memory: &memory_wiring,
+        distill_task: &distill_task,
     };
 
     // Drives viewport redraws while a turn is in flight: animates the
     // breathing `⏺` glyph and refreshes the elapsed-seconds counter.
     // Idle iterations don't poll this branch, so there's no off-turn churn.
-    let mut redraw_tick = tokio::time::interval(REDRAW_INTERVAL);
+    let mut redraw_tick = tokio::time::interval(commands::REDRAW_INTERVAL);
     redraw_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     let mut file_list_cache = FileListCache::default();
@@ -421,15 +420,9 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                         h.abort();
                         let _ = h.await;
                     }
-                    // Flush undistilled memories before quitting; bounded by
-                    // one model call, and a no-op when the watermark is
-                    // current.
-                    if let Some(distiller) =
-                        memory_wiring.as_ref().and_then(|w| w.distiller.as_ref())
-                    {
-                        let mut agent_guard = agent.lock().await;
-                        distiller.run_now(&mut *agent_guard).await;
-                    }
+                    // No distill flush: quit must be instant, and a detached
+                    // task can't outlive the process. The undistilled tail is
+                    // picked up if the session is resumed later.
                     break;
                 }
                 Command::CycleMode => {
@@ -475,6 +468,21 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                                         io_guard.on_turn_end(session).await?;
                                         session.id().clone()
                                     };
+
+                                    // Cadence-gated background distill pass —
+                                    // replaces the in-turn AfterTurn procedure
+                                    // so the UI never waits on it.
+                                    if let Some(wiring) = memory_wiring.as_ref() {
+                                        let min = wiring.distiller.config().min_new_items;
+                                        memory_cmd::spawn_distill(
+                                            wiring,
+                                            &agent,
+                                            &shared_io,
+                                            &distill_task,
+                                            min,
+                                        )
+                                        .await;
+                                    }
 
                                     // Generate a session title after the first
                                     // successful main-agent exchange for this

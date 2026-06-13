@@ -7,21 +7,23 @@
 //! distiller) and passes it to every agent build; the per-kind policy lives
 //! here:
 //!
-//! - **Main** — full memory tools, per-turn recall, and (when a distiller is
-//!   configured) automatic distillation.
+//! - **Main** — full memory tools and per-turn recall. Distillation is *not*
+//!   attached as an `AfterTurn` capability: that would run a model call
+//!   before the turn returns, so the interactive binary schedules
+//!   distillation itself on detached tasks (claim-then-spawn against the
+//!   shared [`MemoryDistiller`]).
 //! - **Plan** — `memory_search` plus recall: planning benefits from past
 //!   decisions but stays read-only, so no save/update/delete.
 //! - **Review** — recall only.
 //!
-//! The headless orchestrator gets the Main policy: its session is the
-//! persisted top-level transcript, while its workers run on ephemeral child
-//! sessions that must not write long-term memory.
+//! The headless orchestrator gets the Main policy plus the in-turn
+//! distillation procedure (non-interactive, so blocking is fine there): its
+//! session is the persisted top-level transcript, while its workers run on
+//! ephemeral child sessions that must not write long-term memory.
 
 use std::sync::Arc;
 
-use sweet_agent::{
-    memory_distiller_capabilities, memory_recall_capabilities, Agent, MemoryDistiller, MemoryRecall,
-};
+use sweet_agent::{memory_recall_capabilities, Agent, MemoryDistiller, MemoryRecall};
 use sweet_core::{Memory, MemoryScope, Model};
 use sweet_memory::{memory_search_tool, memory_tools, MemoryToolset};
 
@@ -39,11 +41,13 @@ pub struct MemoryWiring {
     pub session_id: String,
     /// Maximum memories injected into the system prompt per turn.
     pub recall_limit: usize,
-    /// Present when auto-distillation is enabled. `Arc`-shared so the
-    /// watermark survives agent rebuilds (mode switches) and the binary can
-    /// flush pending items at session boundaries via
-    /// [`MemoryDistiller::run_now`].
-    pub distiller: Option<Arc<MemoryDistiller>>,
+    /// Distillation engine, `Arc`-shared so the watermark survives agent
+    /// rebuilds (mode switches) and every scheduling path — background
+    /// passes, explicit `/memory distill` — claims from the same window.
+    pub distiller: Arc<MemoryDistiller>,
+    /// Whether the *automatic* passes (turn end, `/new`) run. Explicit
+    /// `/memory distill` works regardless.
+    pub auto_distill: bool,
 }
 
 impl MemoryWiring {
@@ -80,10 +84,6 @@ pub(crate) fn apply_memory<M: Model>(
     match kind {
         AgentKind::Main => {
             agent = agent.with_tools(memory_tools(wiring.toolset()));
-            if let Some(distiller) = &wiring.distiller {
-                agent =
-                    agent.with_capabilities(memory_distiller_capabilities(Arc::clone(distiller)));
-            }
         }
         AgentKind::Plan => {
             agent = agent.with_tool(memory_search_tool(wiring.toolset()));
@@ -99,20 +99,19 @@ mod tests {
     use super::*;
     use sweet_core::EphemeralMemory;
 
-    fn wiring(distill: bool) -> MemoryWiring {
+    fn wiring(auto_distill: bool) -> MemoryWiring {
         let store: Arc<dyn Memory> = Arc::new(EphemeralMemory::new());
         MemoryWiring {
             user_scope: MemoryScope::User("default".into()),
             project_scope: MemoryScope::Project("/repo".into()),
             session_id: "s1".into(),
             recall_limit: 5,
-            distiller: distill.then(|| {
-                Arc::new(MemoryDistiller::new(
-                    Arc::clone(&store),
-                    MemoryScope::Project("/repo".into()),
-                    sweet_agent::DistillConfig::default(),
-                ))
-            }),
+            distiller: Arc::new(MemoryDistiller::new(
+                Arc::clone(&store),
+                MemoryScope::Project("/repo".into()),
+                sweet_agent::DistillConfig::default(),
+            )),
+            auto_distill,
             store,
         }
     }

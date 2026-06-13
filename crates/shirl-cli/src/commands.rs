@@ -21,7 +21,7 @@ const MAX_REVIEW_DIFF_BYTES: usize = 30_000;
 /// Viewport redraw cadence while a turn (model call or slow slash command) is
 /// in flight. 150 ms ≈ 17 frames per breath cycle for the `⏺` indicator —
 /// smooth without burning cycles.
-const REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
+pub(crate) const REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
 
 pub(crate) async fn default_review_instruction(cwd: &Path) -> Option<String> {
     let output = tokio::process::Command::new("git")
@@ -149,16 +149,26 @@ pub(crate) async fn handle_chat_input(
                             turn::spawn_user_turn(ctx, &rendered, *active_agent, model_handle)
                                 .await?;
                         } else {
-                            let mut agent_guard = agent.lock().await;
-                            // `/new` rotates the session away: flush undistilled
-                            // memories from the outgoing transcript first.
+                            // `/new` rotates the session away: distill the
+                            // outgoing transcript's pending span on a detached
+                            // task. The span is claimed from the pre-rotation
+                            // snapshot before the command runs, so nothing is
+                            // lost or double-distilled — and `/new` itself
+                            // returns instantly. (Called before taking the
+                            // agent lock: spawn_distill locks it briefly.)
                             if name == "new" {
-                                if let Some(distiller) =
-                                    ctx.memory.as_ref().and_then(|w| w.distiller.as_ref())
-                                {
-                                    distiller.run_now(&mut *agent_guard).await;
+                                if let Some(wiring) = ctx.memory.as_ref() {
+                                    crate::memory_cmd::spawn_distill(
+                                        wiring,
+                                        agent,
+                                        ctx.shared_io,
+                                        ctx.distill_task,
+                                        1,
+                                    )
+                                    .await;
                                 }
                             }
+                            let mut agent_guard = agent.lock().await;
                             // Snapshot the session id before invoking the command;
                             // `/new` swaps it, `/clear` keeps it but wipes items.
                             // Either case invalidates the current title — we

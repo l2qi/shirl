@@ -11,7 +11,7 @@ Shirl is a terminal-based coding assistant CLI built on the [Sweet](https://gith
 - **Headless orchestrator**: `shirl -p` for non-interactive use
 - **Terminal UI**: inline viewport ratatui TUI with file picker and clipboard paste
 - **LLM catalog**: models.dev-backed provider discovery and factory
-- **Long-term memory**: one `~/.shirl/memory.db` shared across sessions, with per-turn recall, agent memory tools, and automatic distillation
+- **Long-term memory**: one `~/.shirl/memory.db` shared across sessions, with per-turn recall, agent memory tools, and background distillation
 
 Dependency direction (one-way — never reverse):
 ```
@@ -24,7 +24,7 @@ shirl-agents → sweet-{agent,core,tools}; shirl-tools → sweet-core
 shirl-tools → sweet-core
 ```
 
-Sweet is an external dependency, pinned to the `v0.3.3` release as a git dependency in `Cargo.toml` (local development can override it back to `../sweet/crates/` via the `[patch]` section). **Do not add sweet-* crates as members of this workspace.** Treat the sweet crate boundary as a repo boundary — no reaching across without a proper API.
+Sweet is an external dependency, pinned to the `v0.3.4` release as a git dependency in `Cargo.toml` (local development can override it back to `../sweet/crates/` via the `[patch]` section). **Do not add sweet-* crates as members of this workspace.** Treat the sweet crate boundary as a repo boundary — no reaching across without a proper API.
 
 ## Before you write a line of code
 
@@ -114,8 +114,9 @@ One `~/.shirl/memory.db` (`sweet_memory::SqliteMemory`, WAL — safe across conc
 
 - `shirl-core::memory` — `open_store`, `memory_db_path`, `user_scope`, `project_scope`; `[memory]` config (`enabled`, `embedder = "provider/model-id"`, `recall_limit`, `auto_distill`) lives on `ShirlConfig::memory`.
 - `shirl-llm::build_embedder` — builds an `Arc<dyn Embedder>` for semantic recall (OpenAI/Gemini protocols only; keyword-only FTS5 recall when unset). Changing the configured embedder demotes existing memories to keyword-only recall — vectors are not re-embedded.
-- `shirl-agents::MemoryWiring` + per-kind policy in `shirl-agents/src/memory.rs`: Main = tools + recall + distillation; Plan = `memory_search` + recall; Review = recall only; headless orchestrator = Main policy; headless workers = none (ephemeral child sessions must not write long-term memory).
-- `shirl-cli::memory_cmd` — builds the wiring at startup (warnings, never fatal) and implements `/memory`. The shared `MemoryDistiller` watermark survives mode switches; `run_now` flushes pending items on `/new` and on clean exit.
+- `shirl-agents::MemoryWiring` + per-kind policy in `shirl-agents/src/memory.rs`: Main = tools + recall; Plan = `memory_search` + recall; Review = recall only; headless orchestrator = Main policy plus the in-turn distill procedure (non-interactive, blocking is fine); headless workers = none (ephemeral child sessions must not write long-term memory).
+- Distillation never blocks the interactive UI: `shirl-cli::memory_cmd::spawn_distill` claims the pending span synchronously (shared `MemoryDistiller` watermark — survives mode switches, no double-distill) and runs `distill_span` on a detached task, at turn end (cadence-gated, ~12 items) and on `/new`; outcomes surface as a `✦ long-term memory: …` scrollback line. Quit does **not** flush — an undistilled tail is picked up when the session is resumed. `auto_distill = false` disables the automatic passes only.
+- `shirl-cli::memory_cmd` — builds the wiring at startup (warnings, never fatal) and implements `/memory` (`list`, `add`, `search`, `forget`, `distill`, `help`; debug builds additionally get `forget all <user|project>`). `/memory distill` first joins any in-flight background pass (tracked in a `DistillTask` slot on `RuntimeCtx`), then distills the remainder inline under the working indicator and prints what it wrote; it works regardless of `auto_distill`.
 
 ### LLM catalog
 

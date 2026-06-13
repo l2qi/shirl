@@ -48,8 +48,9 @@ pub struct MemoryConfig {
     pub embedder: Option<String>,
     /// Maximum memories injected into the system prompt per turn.
     pub recall_limit: usize,
-    /// Automatically distill durable facts from the transcript (an extra
-    /// model call every ~dozen session items and at session boundaries).
+    /// Automatically distill durable facts from the transcript: a background
+    /// model call every ~dozen session items and on `/new` (never blocks the
+    /// UI). The explicit `/memory distill` command works regardless.
     pub auto_distill: bool,
 }
 

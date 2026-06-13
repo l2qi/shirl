@@ -42,7 +42,7 @@ pub fn built_in_commands() -> Vec<CommandInfo> {
         },
         CommandInfo {
             name: "memory".into(),
-            description: "list, add, search, or forget long-term memories".into(),
+            description: "list, add, search, forget, or distill long-term memories".into(),
         },
         CommandInfo {
             name: "model".into(),

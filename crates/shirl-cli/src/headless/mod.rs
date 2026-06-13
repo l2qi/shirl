@@ -262,9 +262,8 @@ pub async fn run_headless(
     let mut io = HeadlessIo;
     let turn_result = agent.step_stream(prompt, &mut io).await;
 
-    if let Some(distiller) = memory_wiring.as_ref().and_then(|w| w.distiller.as_ref()) {
-        distiller.run_now(&mut agent).await;
-    }
+    // No post-turn distill flush needed: the AfterTurn procedure attached in
+    // build_orchestrator already handles it during the turn.
 
     // The model's authoritative final reply lives on `TurnResult::Message`;
     // streaming deltas span multiple inner-loop iterations and would
