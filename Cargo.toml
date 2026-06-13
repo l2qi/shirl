@@ -10,7 +10,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
@@ -46,18 +46,19 @@ toml = "0.8"
 arboard = { version = "3.6", default-features = false, features = ["image-data", "wayland-data-control"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 
-# Sweet — pinned to the v0.3.3 release on GitHub.
+# Sweet — pinned to the v0.3.4 release on GitHub.
 # For local development against the sister repo on disk, uncomment the
 # [patch] section below to override these with path deps.
-sweet-core = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
-sweet-agent = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
-sweet-llm = { git = "https://github.com/sweet/sweet", tag = "v0.3.3", default-features = false }
-sweet-tools = { git = "https://github.com/sweet/sweet", tag = "v0.3.3", default-features = false }
-sweet-session = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
-sweet-sandbox = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
-sweet-mcp = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
+sweet-core = { git = "https://github.com/sweet/sweet", tag = "v0.3.4" }
+sweet-agent = { git = "https://github.com/sweet/sweet", tag = "v0.3.4" }
+sweet-llm = { git = "https://github.com/sweet/sweet", tag = "v0.3.4", default-features = false }
+sweet-tools = { git = "https://github.com/sweet/sweet", tag = "v0.3.4", default-features = false }
+sweet-session = { git = "https://github.com/sweet/sweet", tag = "v0.3.4" }
+sweet-memory = { git = "https://github.com/sweet/sweet", tag = "v0.3.4", features = ["sqlite"] }
+sweet-sandbox = { git = "https://github.com/sweet/sweet", tag = "v0.3.4" }
+sweet-mcp = { git = "https://github.com/sweet/sweet", tag = "v0.3.4" }
 
-# Local development: build against the working tree instead of v0.3.3.
+# Local development: build against the working tree instead of v0.3.4.
 # [patch."https://github.com/sweet/sweet"]
 # sweet-core = { path = "../sweet/crates/sweet-core" }
 # sweet-tool-derive = { path = "../sweet/crates/sweet-tool-derive" }
@@ -65,6 +66,7 @@ sweet-mcp = { git = "https://github.com/sweet/sweet", tag = "v0.3.3" }
 # sweet-llm = { path = "../sweet/crates/sweet-llm" }
 # sweet-tools = { path = "../sweet/crates/sweet-tools" }
 # sweet-session = { path = "../sweet/crates/sweet-session" }
+# sweet-memory = { path = "../sweet/crates/sweet-memory" }
 # sweet-sandbox = { path = "../sweet/crates/sweet-sandbox" }
 # sweet-mcp = { path = "../sweet/crates/sweet-mcp" }
 

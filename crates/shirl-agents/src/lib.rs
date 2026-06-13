@@ -12,4 +12,7 @@
 
 pub mod agents;
 pub mod headless;
+mod memory;
 pub mod subagents;
+
+pub use memory::MemoryWiring;

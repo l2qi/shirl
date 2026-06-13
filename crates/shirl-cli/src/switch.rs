@@ -37,6 +37,7 @@ async fn rebuild_agent(
         session,
         &mcp_specs,
         ctx.sandbox.clone(),
+        ctx.memory.as_ref(),
     );
     let new_agent =
         shirl_core::install_auto_compaction(new_agent, shirl_core::CompactionConfig::default());

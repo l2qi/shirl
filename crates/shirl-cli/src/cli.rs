@@ -18,6 +18,7 @@ pub(crate) const RESERVED_COMMANDS: &[&str] = &[
     "model",
     "provider",
     "capabilities",
+    "memory",
     "help",
     "plan",
     "review",

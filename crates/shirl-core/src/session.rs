@@ -42,6 +42,12 @@ impl PersistedSession {
         let inner = SqliteSession::open_with_id(&path, id).map_err(SessionError::storage)?;
         Ok(Self { inner })
     }
+
+    /// The full transcript including rows archived by compaction, in order,
+    /// each with its archived flag. See [`SqliteSession::full_items`].
+    pub fn full_items(&self) -> Result<Vec<(MemoryItem, bool)>> {
+        self.inner.full_items()
+    }
 }
 
 impl Session for PersistedSession {

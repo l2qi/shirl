@@ -38,11 +38,12 @@ impl AutoCompactionProcedure {
             if msg.role == sweet_core::Role::Tool {
                 freed += (msg.text_content().chars().count() / 4)
                     .saturating_sub(placeholder.chars().count() / 4);
-                let cleared = MemoryItem::Message(Message::tool_result(
-                    msg.tool_call_id.clone().unwrap_or_default(),
-                    placeholder,
-                ));
-                session.replace_range(i..(i + 1), vec![cleared])?;
+                let mut cleared =
+                    Message::tool_result(msg.tool_call_id.clone().unwrap_or_default(), placeholder);
+                // Compaction artifact: lets full-transcript views (Ctrl+O)
+                // hide the placeholder and show the archived original.
+                cleared.compacted = true;
+                session.replace_range(i..(i + 1), vec![MemoryItem::Message(cleared)])?;
             }
         }
         Ok(freed)
@@ -186,8 +187,10 @@ mod tests {
         // Clearing the 800-char tool result drops usage below threshold, so no
         // summary is produced — every item is still a plain message.
         assert!(items.iter().all(|i| matches!(i, MemoryItem::Message(_))));
-        // The old tool result was cleared in place.
+        // The old tool result was cleared in place (and marked as a
+        // compaction artifact).
         let MemoryItem::Message(msg) = &items[1];
         assert!(msg.text_content().starts_with("[Result cleared"));
+        assert!(msg.compacted);
     }
 }

@@ -11,19 +11,20 @@ Shirl is a terminal-based coding assistant CLI built on the [Sweet](https://gith
 - **Headless orchestrator**: `shirl -p` for non-interactive use
 - **Terminal UI**: inline viewport ratatui TUI with file picker and clipboard paste
 - **LLM catalog**: models.dev-backed provider discovery and factory
+- **Long-term memory**: one `~/.shirl/memory.db` shared across sessions, with per-turn recall, agent memory tools, and background distillation
 
 Dependency direction (one-way — never reverse):
 ```
 shirl-cli → shirl-{core,llm,ui,agents,tools} → sweet-*
 shirl-cli → sweet-{agent,core,llm,sandbox,tools,mcp,session}
-shirl-core → sweet-{core,agent,session}
+shirl-core → sweet-{core,agent,session,memory}
 shirl-llm → sweet-{core,llm}
 shirl-ui → sweet-{agent,core}
-shirl-agents → sweet-{agent,core,tools}; shirl-tools → sweet-core
+shirl-agents → sweet-{agent,core,tools,memory}; shirl-tools → sweet-core
 shirl-tools → sweet-core
 ```
 
-Sweet is an external dependency, pinned to the `v0.3.3` release as a git dependency in `Cargo.toml` (local development can override it back to `../sweet/crates/` via the `[patch]` section). **Do not add sweet-* crates as members of this workspace.** Treat the sweet crate boundary as a repo boundary — no reaching across without a proper API.
+Sweet is an external dependency, pinned to the `v0.3.4` release as a git dependency in `Cargo.toml` (local development can override it back to `../sweet/crates/` via the `[patch]` section). **Do not add sweet-* crates as members of this workspace.** Treat the sweet crate boundary as a repo boundary — no reaching across without a proper API.
 
 ## Before you write a line of code
 
@@ -105,7 +106,17 @@ All three disk-discovered providers share the CWD→git-root walk in the private
 
 ### Session management
 
-`PersistedSession` (SQLite) lives in `shirl-core`. Sessions are stored at `~/.shirl/sessions/<id>/session.db`. `CodingAgent` wraps `sweet_agent::Agent` and installs auto-compaction as a `BeforeModelCall` hook.
+`PersistedSession` (SQLite) lives in `shirl-core`. Sessions are stored at `~/.shirl/sessions/<id>/session.db`. `CodingAgent` wraps `sweet_agent::Agent` and installs auto-compaction as a `BeforeModelCall` hook. Compaction marks replaced rows archived in the same db (sweet ≥ 0.3.4) rather than deleting them; the Ctrl+O transcript popup shows the full history via `PersistedSession::full_items()`, hiding the synthetic compaction artifacts (which all carry `compacted = true`, including cleared-tool-result placeholders).
+
+### Long-term memory
+
+One `~/.shirl/memory.db` (`sweet_memory::SqliteMemory`, WAL — safe across concurrent shirl instances) holds every memory. Scopes: `MemoryScope::User("default")` (personal) and `MemoryScope::Project(<canonical git root>)` (per-codebase, same identity AGENTS.md discovery uses). Saves land in the project scope; recall and search see both.
+
+- `shirl-core::memory` — `open_store`, `memory_db_path`, `user_scope`, `project_scope`; `[memory]` config (`enabled`, `embedder = "provider/model-id"`, `recall_limit`, `auto_distill`) lives on `ShirlConfig::memory`.
+- `shirl-llm::build_embedder` — builds an `Arc<dyn Embedder>` for semantic recall (OpenAI/Gemini protocols only; keyword-only FTS5 recall when unset). Changing the configured embedder demotes existing memories to keyword-only recall — vectors are not re-embedded.
+- `shirl-agents::MemoryWiring` + per-kind policy in `shirl-agents/src/memory.rs`: Main = tools + recall; Plan = `memory_search` + recall; Review = recall only; headless orchestrator = Main policy plus the in-turn distill procedure (non-interactive, blocking is fine); headless workers = none (ephemeral child sessions must not write long-term memory).
+- Distillation never blocks the interactive UI: `shirl-cli::memory_cmd::spawn_distill` claims the pending span synchronously (shared `MemoryDistiller` watermark — survives mode switches, no double-distill) and runs `distill_span` on a detached task, at turn end (cadence-gated, ~12 items) and on `/new`; outcomes surface as a `✦ long-term memory: …` scrollback line. Quit does **not** flush — an undistilled tail is picked up when the session is resumed. `auto_distill = false` disables the automatic passes only.
+- `shirl-cli::memory_cmd` — builds the wiring at startup (warnings, never fatal) and implements `/memory` (`list`, `add`, `search`, `forget`, `distill`, `help`; debug builds additionally get `forget all <user|project>`). `/memory distill` first joins any in-flight background pass (tracked in a `DistillTask` slot on `RuntimeCtx`), then distills the remainder inline under the working indicator and prints what it wrote; it works regardless of `auto_distill`.
 
 ### LLM catalog
 
@@ -128,15 +139,16 @@ cargo doc --workspace --no-deps --all-features
 
 ## Git hygiene
 
+- **Never run `git commit` or `git push` (or open a PR) without the owner's explicit approval.** A green pre-commit checklist is a prerequisite, not authorization.
+- Do not amend or rewrite an existing commit on your own initiative — the owner may have pushed it. Default to a follow-up commit; if amending seems like the better call, ask first.
 - Do not skip hooks (`--no-verify`). Fix the underlying issue.
 - Write commit messages in the imperative mood, ≤ 72 chars for the subject.
-- Never push or open a PR without explicit instruction.
 
 ## Crate-by-crate quick reference
 
 ### shirl-core
 
-Public surface: `PersistedSession`, `CodingAgent`, `ShirlConfig`, `AgentsMd`, `CustomCommandsProvider`, `SkillsProvider`, `PlanTracker`, `session_dir`.
+Public surface: `PersistedSession`, `CodingAgent`, `ShirlConfig`, `MemoryConfig`, `AgentsMd`, `CustomCommandsProvider`, `SkillsProvider`, `PlanTracker`, `session_dir`, `memory` module (`open_store`, `user_scope`, `project_scope`, `memory_db_path`).
 
 - `PersistedSession` — SQLite-backed session at `~/.shirl/sessions/<id>/session.db`
 - `CodingAgent` — wraps `sweet_agent::Agent` with auto-compaction hook
@@ -145,7 +157,7 @@ Public surface: `PersistedSession`, `CodingAgent`, `ShirlConfig`, `AgentsMd`, `C
 
 ### shirl-llm
 
-Public surface: `Catalog`, `CatalogProvider`, `CatalogModel`, `Protocol`, `build_model`.
+Public surface: `Catalog`, `CatalogProvider`, `CatalogModel`, `Protocol`, `build_model`, `build_embedder`.
 
 - `catalog` — fetch, parse, and cache models.dev provider/model catalog
 - `factory` — `build_model` constructs an `Arc<dyn Model>` from a `Protocol`, model id, base URL, and API key
@@ -170,7 +182,7 @@ Feature flags:
 
 ### shirl-agents
 
-Public surface (agents): `AgentKind`, `ModeCommand`, `ModeSwitch`, `build_agent`, `resolve_mode_command`, `SharedWebSearchBackend`.
+Public surface (agents): `AgentKind`, `ModeCommand`, `ModeSwitch`, `build_agent`, `resolve_mode_command`, `SharedWebSearchBackend`. Crate root also exports `MemoryWiring`.
 Public surface (subagents): `explore_spec`, `diagnose_spec`, `explain_spec`, `testgen_spec`, `web_research_spec`.
 Public surface (headless): `build_orchestrator`, `ORCHESTRATOR_PROMPT`, `ReportStore`, `Tracking`.
 
@@ -194,7 +206,7 @@ Config files: `~/.shirl/auth.toml` (API keys), `~/.shirl/config.toml` (model sel
 | New subagent | `shirl-agents/src/subagents/<name>.rs`, register via `with_subagent` in the agent builder |
 | New headless worker | `shirl-agents/src/headless/<name>_sub.rs`, wire into `headless::orchestrator::build`, update orchestrator prompt |
 | New peer agent (handoff) | `shirl-agents/src/agents/<name>.rs`, add to `agents/mod.rs`, register handoff tools, update `resolve_mode_command` |
-| New slash command | `shirl-cli/src/main.rs` dispatch, `shirl-agents/src/agents/mod.rs` `resolve_mode_command`, add to `RESERVED_COMMANDS` |
+| New slash command | `shirl-cli/src/main.rs` dispatch, `shirl-agents/src/agents/mod.rs` `resolve_mode_command`, add to `RESERVED_COMMANDS`, picker entry in `shirl-ui/src/completion.rs` |
 | New CLI flag | `shirl-cli/src/main.rs` `parse_args` + `print_help`, plus `headless/mod.rs` if it changes headless behavior |
 | MCP config change | `sweet-mcp/src/config.rs` (in the sweet repo), README |
 | Public API change in sweet-core or sweet-agent | All downstream shirl crates using that API |

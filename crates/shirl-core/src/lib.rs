@@ -13,6 +13,7 @@ mod discovery;
 pub mod hooks;
 pub mod media_input;
 mod media_strip;
+pub mod memory;
 pub mod session;
 pub mod skills;
 pub mod tracker;
@@ -23,7 +24,7 @@ pub use commands::{parse_slash_command, Clear, Compact, New};
 pub use compaction::{
     compact_session, install_auto_compaction, CompactionConfig, DEFAULT_PRESERVE_RECENT,
 };
-pub use config::{AgentModelConfig, ShirlConfig};
+pub use config::{AgentModelConfig, MemoryConfig, ShirlConfig};
 pub use custom_commands::CustomCommandsProvider;
 pub use hooks::AutoCompactionProcedure;
 pub use media_input::{has_files, has_images, resolve_media, Resolved};

@@ -164,6 +164,9 @@ pub(crate) fn read_only_tools(
         .with_tool(tail_file_tool(fs))
 }
 
+// Construction wiring: every argument is a distinct dependency the binary
+// resolves differently; bundling them into a struct would only move the list.
+#[allow(clippy::too_many_arguments)]
 pub fn build_agent(
     kind: AgentKind,
     model: Arc<dyn Model>,
@@ -172,8 +175,9 @@ pub fn build_agent(
     session: Box<dyn Session>,
     mcp_specs: &[sweet_core::ToolSpec],
     sandbox: Arc<dyn Sandbox>,
+    memory: Option<&crate::MemoryWiring>,
 ) -> Agent<Arc<dyn Model>> {
-    match kind {
+    let agent = match kind {
         AgentKind::Main => {
             main_agent::build(model, extensions, web_search, session, mcp_specs, sandbox)
         }
@@ -183,7 +187,8 @@ pub fn build_agent(
         AgentKind::Review => {
             review_agent::build(model, extensions, web_search, session, mcp_specs, sandbox)
         }
-    }
+    };
+    crate::memory::apply_memory(agent, kind, memory)
 }
 
 /// Bundle the dynamically discovered MCP tool specs into a capability provider.

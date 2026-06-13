@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 pub struct ShirlConfig {
     /// Default provider/model used for all agents unless overridden.
     pub default: AgentModelConfig,
+    /// Long-term memory settings (optional; defaults to enabled).
+    #[serde(default)]
+    pub memory: MemoryConfig,
     /// Per-agent overrides (optional).
     #[serde(default)]
     pub agents: HashMap<String, AgentModelConfig>,
@@ -27,6 +30,39 @@ pub struct ShirlConfig {
     /// Model extensions per provider (optional).
     #[serde(default)]
     pub models: HashMap<String, HashMap<String, ModelExtension>>,
+}
+
+/// Long-term memory settings, `[memory]` in config.toml.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemoryConfig {
+    /// Master switch for long-term memory (tools, recall, distillation).
+    pub enabled: bool,
+    /// Embedding model for semantic recall as `"provider/model-id"`
+    /// (e.g. `"openai/text-embedding-3-small"`). `None` means keyword-only
+    /// recall — no embedding API calls are ever made.
+    ///
+    /// Vectors are tied to the embedder that produced them: changing this
+    /// demotes existing memories to keyword-only recall (they are not
+    /// re-embedded) until each is next updated.
+    pub embedder: Option<String>,
+    /// Maximum memories injected into the system prompt per turn.
+    pub recall_limit: usize,
+    /// Automatically distill durable facts from the transcript: a background
+    /// model call every ~dozen session items and on `/new` (never blocks the
+    /// UI). The explicit `/memory distill` command works regardless.
+    pub auto_distill: bool,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            embedder: None,
+            recall_limit: 5,
+            auto_distill: true,
+        }
+    }
 }
 
 /// Provider + model pair for a single agent.

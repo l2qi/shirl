@@ -70,6 +70,8 @@ pub(crate) struct WorkerDeps {
 pub type WorkerPostBuild =
     Arc<dyn Fn(Agent<Arc<dyn Model>>) -> Agent<Arc<dyn Model>> + Send + Sync>;
 
+// Same construction-wiring shape as `agents::build_agent`.
+#[allow(clippy::too_many_arguments)]
 pub fn build_orchestrator(
     model: Arc<dyn Model>,
     extensions: Arc<ExtensionRegistry>,
@@ -78,10 +80,26 @@ pub fn build_orchestrator(
     mcp_specs: &[ToolSpec],
     sandbox: Arc<dyn Sandbox>,
     tracking: Tracking,
+    memory: Option<&crate::MemoryWiring>,
 ) -> Agent<Arc<dyn Model>> {
-    orchestrator::build(
+    let agent = orchestrator::build(
         model, extensions, web_search, session, mcp_specs, sandbox, tracking,
-    )
+    );
+    // The orchestrator's session is the persisted top-level transcript, so it
+    // gets the Main memory policy. Workers run on ephemeral child sessions
+    // and deliberately get none (see run_worker_turn).
+    let mut agent = crate::memory::apply_memory(agent, AgentKind::Main, memory);
+    // Unlike the interactive binary (which schedules distillation on
+    // detached tasks so the UI never waits), headless runs are fine blocking
+    // a turn on the distill model call — attach the in-turn procedure.
+    if let Some(wiring) = memory {
+        if wiring.auto_distill {
+            agent = agent.with_capabilities(sweet_agent::memory_distiller_capabilities(
+                Arc::clone(&wiring.distiller),
+            ));
+        }
+    }
+    agent
 }
 
 /// Shared invocation logic for the three headless subagents (plan, implement,
@@ -112,6 +130,9 @@ pub(crate) async fn run_worker_turn(
         child_session,
         &deps.mcp_specs,
         deps.sandbox.clone(),
+        // Workers run on ephemeral child sessions: no long-term memory, and
+        // in particular no distillation from scratch transcripts.
+        None,
     );
     if let Some(post_build) = &deps.post_build {
         agent = post_build(agent);
