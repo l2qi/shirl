@@ -17,10 +17,10 @@ Dependency direction (one-way — never reverse):
 ```
 shirl-cli → shirl-{core,llm,ui,agents,tools} → sweet-*
 shirl-cli → sweet-{agent,core,llm,sandbox,tools,mcp,session}
-shirl-core → sweet-{core,agent,session}
+shirl-core → sweet-{core,agent,session,memory}
 shirl-llm → sweet-{core,llm}
 shirl-ui → sweet-{agent,core}
-shirl-agents → sweet-{agent,core,tools}; shirl-tools → sweet-core
+shirl-agents → sweet-{agent,core,tools,memory}; shirl-tools → sweet-core
 shirl-tools → sweet-core
 ```
 

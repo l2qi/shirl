@@ -228,16 +228,9 @@ pub async fn run_headless(
     tracking.worker_post_build = Some(worker_post_build);
 
     let memory_wiring = {
-        let config_guard = config.lock().await;
-        let auth_guard = auth.lock().await;
-        let cwd = std::env::current_dir().context("get cwd")?;
-        let (wiring, warnings) = crate::memory_cmd::build_wiring(
-            &config_guard,
-            &auth_guard,
-            &catalog,
-            &session_id.to_string(),
-            &cwd,
-        );
+        let (wiring, warnings) =
+            crate::memory_cmd::resolve_wiring(&config, &auth, &catalog, &session_id.to_string())
+                .await?;
         for warning in warnings {
             eprintln!("{warning}");
         }

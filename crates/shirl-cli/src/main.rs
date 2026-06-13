@@ -256,16 +256,8 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
 
     let session_id = session.id().clone();
     let memory_wiring = {
-        let config_guard = config.lock().await;
-        let auth_guard = auth.lock().await;
-        let cwd = std::env::current_dir().context("get cwd")?;
-        let (wiring, warnings) = memory_cmd::build_wiring(
-            &config_guard,
-            &auth_guard,
-            &catalog,
-            &session_id.to_string(),
-            &cwd,
-        );
+        let (wiring, warnings) =
+            memory_cmd::resolve_wiring(&config, &auth, &catalog, &session_id.to_string()).await?;
         if !warnings.is_empty() {
             let mut io_guard = io.lock().await;
             io_guard.insert_lines(&warnings)?;

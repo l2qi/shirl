@@ -189,4 +189,30 @@ mod tests {
             assert_eq!(model.context_window(), Some(123_000));
         }
     }
+
+    #[test]
+    fn build_embedder_supports_openai_and_gemini() {
+        for protocol in [Protocol::OpenAI, Protocol::Gemini] {
+            build_embedder(
+                protocol,
+                "embed-model",
+                "https://example.test/v1",
+                "test-key",
+            )
+            .expect("embedder builds");
+        }
+    }
+
+    #[test]
+    fn build_embedder_rejects_anthropic() {
+        // `Arc<dyn Embedder>` isn't `Debug`, so `expect_err` won't compile.
+        let err = match build_embedder(Protocol::Anthropic, "x", "", "test-key") {
+            Ok(_) => panic!("anthropic has no embeddings API"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("anthropic"),
+            "unexpected error: {err}"
+        );
+    }
 }

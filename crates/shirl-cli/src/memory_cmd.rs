@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use shirl_agents::MemoryWiring;
 use shirl_core::{AuthStore, ShirlConfig};
 use shirl_llm::catalog::Catalog;
@@ -31,6 +31,28 @@ const DISTILL_TIMEOUT: Duration = Duration::from_secs(120);
 /// claim — without joining it the command would report "nothing new" while
 /// a pass is visibly in flight).
 pub(crate) type DistillTask = Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>;
+
+/// Lock config + auth, resolve the cwd, and build the run's memory wiring.
+/// Both entry points (interactive `run` and `run_headless`) need this same
+/// setup; they differ only in how they surface `warnings` (REPL scrollback
+/// vs stderr), so that stays at the call site.
+pub(crate) async fn resolve_wiring(
+    config: &Mutex<ShirlConfig>,
+    auth: &Mutex<AuthStore>,
+    catalog: &Catalog,
+    session_id: &str,
+) -> Result<(Option<MemoryWiring>, Vec<String>)> {
+    let config_guard = config.lock().await;
+    let auth_guard = auth.lock().await;
+    let cwd = std::env::current_dir().context("get cwd")?;
+    Ok(build_wiring(
+        &config_guard,
+        &auth_guard,
+        catalog,
+        session_id,
+        &cwd,
+    ))
+}
 
 /// Build the run's memory wiring from config. Returns `None` (memory
 /// disabled) when the config says so or when the store cannot be opened;
