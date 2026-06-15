@@ -1463,6 +1463,19 @@ impl ReplIo {
                                     }
                                     continue;
                                 }
+                                KeyCode::Enter => {
+                                    // Confirm the highlighted row even when the
+                                    // search box is empty. on_key swallows an
+                                    // empty buffer as Redraw (which becomes
+                                    // Partial, not Submit), so an arrow-only
+                                    // selection can never be confirmed. Mirror
+                                    // on_key's take()-then-Submit semantics here.
+                                    let line = io.input.current().to_string();
+                                    io.input.clear();
+                                    let _ = io.draw();
+                                    let _ = io.cmd_tx.try_send(Command::Submit(line));
+                                    continue;
+                                }
                                 KeyCode::Up => {
                                     let _ = io.cmd_tx.try_send(Command::SelectMove(-1));
                                     continue;
@@ -1618,6 +1631,17 @@ impl ReplIo {
                         // buffer or terminal state.
                         let cleaned = sanitize_pasted_text(&text);
                         io.input.insert_str(&cleaned);
+                        // Paste mutates the buffer, so a popup picker (model,
+                        // provider, API-key) must see the new value — otherwise
+                        // its internal filter stays stale (a pasted key would
+                        // look empty on submit). Keystrokes reach the same path
+                        // via InputOutcome::Redraw; paste bypasses on_key, so
+                        // emit Partial explicitly here.
+                        if io.picker.is_some() {
+                            let _ = io
+                                .cmd_tx
+                                .try_send(Command::Partial(io.input.current().to_string()));
+                        }
                         let _ = io.draw();
                     }
                     Event::Resize(_, _) => {
