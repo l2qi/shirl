@@ -24,7 +24,7 @@ shirl-agents → sweet-{agent,core,tools,memory}; shirl-tools → sweet-core
 shirl-tools → sweet-core
 ```
 
-Sweet is an external dependency, pinned to the `v0.3.4` release as a git dependency in `Cargo.toml` (local development can override it back to `../sweet/crates/` via the `[patch]` section). **Do not add sweet-* crates as members of this workspace.** Treat the sweet crate boundary as a repo boundary — no reaching across without a proper API.
+Sweet is an external dependency, pinned to the `v0.3.5` release as a git dependency in `Cargo.toml` (local development can override it back to `../sweet/crates/` via the `[patch]` section). **Do not add sweet-* crates as members of this workspace.** Treat the sweet crate boundary as a repo boundary — no reaching across without a proper API.
 
 ## Before you write a line of code
 
