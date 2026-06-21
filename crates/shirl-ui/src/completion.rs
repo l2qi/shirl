@@ -65,6 +65,10 @@ pub fn built_in_commands() -> Vec<CommandInfo> {
             description: "manage providers".into(),
         },
         CommandInfo {
+            name: "reasoning".into(),
+            description: "show or set model reasoning (on/off/effort/budget)".into(),
+        },
+        CommandInfo {
             name: "review".into(),
             description: "switch to review mode".into(),
         },
@@ -74,7 +78,7 @@ pub fn built_in_commands() -> Vec<CommandInfo> {
 /// Returns the slash-command portion of `input` and the known commands whose
 /// name starts with it.
 ///
-/// Returns `None` when `input` is not a bare slash command — no leading `/`,
+/// Returns `None` when `input` is not a bare slash command - no leading `/`,
 /// or a space already separates the command from its arguments.
 fn matching<'i, 'c>(
     input: &'i str,
@@ -121,7 +125,7 @@ pub fn hint(input: &str, commands: &[CommandInfo]) -> Option<String> {
     Some(
         matches
             .iter()
-            .map(|c| format!("{} — {}", c.name, c.description))
+            .map(|c| format!("{} - {}", c.name, c.description))
             .collect::<Vec<_>>()
             .join("  ·  "),
     )
@@ -204,7 +208,7 @@ mod tests {
         let h = hint("/p", &cmds());
         assert_eq!(
             h,
-            Some("plan — switch to plan mode  ·  provider — manage providers".to_string())
+            Some("plan - switch to plan mode  ·  provider - manage providers".to_string())
         );
     }
 

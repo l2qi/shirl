@@ -8,7 +8,7 @@ description = "Shirl-specific LLM provider management (catalog, factory)."
 
 [dependencies]
 sweet-core = { workspace = true }
-sweet-llm = { workspace = true, default-features = false, features = ["openai", "anthropic", "gemini"] }
+sweet-llm = { workspace = true, default-features = false, features = ["openai", "anthropic", "gemini", "cerebras"] }
 anyhow = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }

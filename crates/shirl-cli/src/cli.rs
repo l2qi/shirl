@@ -17,6 +17,7 @@ pub(crate) const RESERVED_COMMANDS: &[&str] = &[
     "compact",
     "model",
     "provider",
+    "reasoning",
     "capabilities",
     "memory",
     "help",
@@ -194,7 +195,7 @@ fn print_help() {
     println!("Exit codes: 0 success · 1 error · 2 usage · 5 config-incomplete");
 }
 
-/// Output of pure-flag parsing — no env or stdin touched yet.
+/// Output of pure-flag parsing - no env or stdin touched yet.
 ///
 /// `--continue` resolution and stdin reading happen in [`parse_args`] using
 /// the values on this struct as inputs.
@@ -303,7 +304,7 @@ fn parse_argv(argv: Vec<String>) -> Result<ParsedArgs> {
         sweet_core::PermissionMode::Normal
     };
 
-    // Network policy. Fixed for the session — neither macOS Seatbelt nor Linux
+    // Network policy. Fixed for the session - neither macOS Seatbelt nor Linux
     // bwrap can filter network by host or IP at the kernel layer.
     let sandbox_policy = if restrict_network {
         SandboxPolicy::Restricted

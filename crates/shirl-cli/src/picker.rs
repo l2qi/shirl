@@ -3,10 +3,28 @@
 
 use anyhow::{bail, Result};
 use shirl_core::{AuthStore, ShirlConfig};
-use shirl_llm::catalog::{Catalog, CatalogModel};
+use shirl_llm::catalog::{Catalog, CatalogModel, ReasoningOption};
 use std::collections::HashMap;
 
 use shirl_ui::{Command, PickerEntry, PickerRenderState, PickerSection, SharedIo};
+
+/// Compact reasoning-capability hint for a model picker row: the dialect kinds
+/// the model supports (`on/off`, `effort`, `budget`), or empty when it exposes
+/// no reasoning control. ASCII only.
+fn reasoning_hint(options: &[ReasoningOption]) -> String {
+    if options.is_empty() {
+        return String::new();
+    }
+    let kinds: Vec<&str> = options
+        .iter()
+        .map(|o| match o {
+            ReasoningOption::Toggle => "on/off",
+            ReasoningOption::Effort { .. } => "effort",
+            ReasoningOption::BudgetTokens { .. } => "budget",
+        })
+        .collect();
+    format!("  {}", kinds.join("/"))
+}
 
 // ---------------------------------------------------------------------------
 // Picker state
@@ -77,7 +95,7 @@ pub(crate) fn fuzzy_match(haystack: &str, needle: &str) -> bool {
     true
 }
 
-/// Truncate `s` to `max` display characters, appending `…` if truncated.
+/// Truncate `s` to `max` display characters, appending `...` if truncated.
 pub(crate) fn truncate_str(s: &str, max: usize) -> String {
     if max == 0 {
         return String::new();
@@ -196,11 +214,15 @@ fn build_model_sections(
                     .filter(|n| *n > 0)
                     .map(|n| format!("  {}k", n / 1000))
                     .unwrap_or_default();
+                // Compact reasoning-capability hint (dialect kinds only; the
+                // full per-value detail is shown by `/reasoning`). ASCII so the
+                // byte-length width math below stays correct.
+                let reason_str = reasoning_hint(&m.reasoning_options);
                 let id = format!("{}/{}", provider_id, m.id);
                 let is_current = id == state.current;
-                // Layout: <id_col> <name_col> <ctx_suffix>
-                // ctx_suffix is up to 7 chars, separator is 2 spaces.
-                let ctx_len = ctx_str.len();
+                // Layout: <id_col> <name_col> <reason><ctx_suffix>
+                let suffix = format!("{reason_str}{ctx_str}");
+                let ctx_len = suffix.len();
                 let available = max_row_width.saturating_sub(ctx_len + 2);
                 let id_w = (available * 3 / 5).max(10);
                 let name_w = available.saturating_sub(id_w + 1);
@@ -208,7 +230,7 @@ fn build_model_sections(
                     "{:<id_w$} {:<name_w$}{}",
                     truncate_str(&m.id, id_w),
                     truncate_str(&m.name, name_w),
-                    ctx_str,
+                    suffix,
                 );
                 PickerEntry {
                     id,
@@ -351,8 +373,10 @@ async fn populate_model_picker(
                         id: id.clone(),
                         name: ext.display_name.clone().unwrap_or_else(|| id.clone()),
                         context_window: ext.context_window,
+                        max_output_tokens: None,
                         reasoning: false,
                         vision: false,
+                        reasoning_options: Vec::new(),
                     });
                 }
             }

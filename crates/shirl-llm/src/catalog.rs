@@ -18,11 +18,20 @@ use serde::{Deserialize, Serialize};
 const CACHE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 const MODELS_DEV_URL: &str = "https://models.dev/api.json";
 const CACHE_FILENAME: &str = "models-dev.json";
+/// Bumped whenever the parsed catalog shape changes. A cache written by an
+/// older shirl (different `schema_version`) is ignored and refetched rather
+/// than silently misinterpreted - e.g. when a provider's protocol mapping or
+/// the set of parsed model fields changes.
+const CATALOG_SCHEMA_VERSION: u32 = 3;
 
 /// Wire protocol supported by shirl.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Protocol {
     OpenAI,
+    /// Cerebras Inference - OpenAI-compatible transport, but it rejects the
+    /// `thinking` object and its models reason by default. Handled by
+    /// `sweet_llm::CerebrasProvider`, which sends no reasoning parameter.
+    Cerebras,
     Anthropic,
     Gemini,
 }
@@ -31,10 +40,24 @@ impl std::fmt::Display for Protocol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Protocol::OpenAI => write!(f, "openai"),
+            Protocol::Cerebras => write!(f, "cerebras"),
             Protocol::Anthropic => write!(f, "anthropic"),
             Protocol::Gemini => write!(f, "gemini"),
         }
     }
+}
+
+/// How a model's reasoning can be controlled, mirroring the three
+/// `reasoning_options` dialects published by models.dev. The factory uses these
+/// to choose which [`sweet_llm::ReasoningConfig`] to build.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReasoningOption {
+    /// Reasoning is turned on/off via a toggle (the `thinking` object).
+    Toggle,
+    /// Reasoning level is chosen from `values` (e.g. `low`/`medium`/`high`/`none`).
+    Effort { values: Vec<String> },
+    /// Reasoning takes a token budget within the optional `[min, max]` bounds.
+    BudgetTokens { min: Option<u32>, max: Option<u32> },
 }
 
 /// A single model from the catalog.
@@ -43,10 +66,18 @@ pub struct CatalogModel {
     pub id: String,
     pub name: String,
     pub context_window: Option<usize>,
+    /// Maximum output tokens (models.dev `limit.output`). Used to set the
+    /// per-model output cap for protocols that take one (Anthropic, Gemini).
+    #[serde(default)]
+    pub max_output_tokens: Option<usize>,
     pub reasoning: bool,
     /// Whether the model accepts image inputs.
     #[serde(default)]
     pub vision: bool,
+    /// How this model's reasoning can be controlled (models.dev
+    /// `reasoning_options`). Empty means the model exposes no reasoning knob.
+    #[serde(default)]
+    pub reasoning_options: Vec<ReasoningOption>,
 }
 
 /// A single provider from the catalog.
@@ -65,6 +96,10 @@ pub struct CatalogProvider {
 pub struct Catalog {
     pub providers: Vec<CatalogProvider>,
     pub fetched_at: SystemTime,
+    /// Schema version of the parsed shape (see `CATALOG_SCHEMA_VERSION`). A
+    /// cached catalog whose version differs is treated as stale.
+    #[serde(default)]
+    pub schema_version: u32,
 }
 
 impl Default for Catalog {
@@ -72,6 +107,7 @@ impl Default for Catalog {
         Self {
             providers: Vec::new(),
             fetched_at: SystemTime::UNIX_EPOCH,
+            schema_version: CATALOG_SCHEMA_VERSION,
         }
     }
 }
@@ -111,6 +147,8 @@ mod raw {
         pub reasoning: bool,
         #[serde(default)]
         pub modalities: Option<Modalities>,
+        #[serde(default)]
+        pub reasoning_options: Vec<ReasoningOption>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -119,17 +157,61 @@ mod raw {
         pub input: Vec<String>,
     }
 
+    /// One `reasoning_options` entry. Tagged on `type`; an unrecognized future
+    /// `type` deserializes to [`ReasoningOption::Unknown`] (dropped on mapping)
+    /// rather than failing the whole-catalog parse.
+    #[derive(Debug, Deserialize)]
+    #[serde(tag = "type", rename_all = "snake_case")]
+    pub enum ReasoningOption {
+        Toggle,
+        Effort {
+            #[serde(default)]
+            values: Vec<String>,
+        },
+        BudgetTokens {
+            #[serde(default)]
+            min: Option<u32>,
+            #[serde(default)]
+            max: Option<u32>,
+        },
+        #[serde(other)]
+        Unknown,
+    }
+
     impl Model {
         pub fn accepts_image_input(&self) -> bool {
             self.modalities
                 .as_ref()
                 .is_some_and(|m| m.input.iter().any(|s| s == "image"))
         }
+
+        /// Map the raw `reasoning_options` to the public enum, dropping any
+        /// unrecognized (`Unknown`) entries.
+        pub fn reasoning_options(&self) -> Vec<super::ReasoningOption> {
+            self.reasoning_options
+                .iter()
+                .filter_map(|o| match o {
+                    ReasoningOption::Toggle => Some(super::ReasoningOption::Toggle),
+                    ReasoningOption::Effort { values } => Some(super::ReasoningOption::Effort {
+                        values: values.clone(),
+                    }),
+                    ReasoningOption::BudgetTokens { min, max } => {
+                        Some(super::ReasoningOption::BudgetTokens {
+                            min: *min,
+                            max: *max,
+                        })
+                    }
+                    ReasoningOption::Unknown => None,
+                })
+                .collect()
+        }
     }
 
     #[derive(Debug, Deserialize)]
     pub struct Limit {
         pub context: Option<u64>,
+        #[serde(default)]
+        pub output: Option<u64>,
     }
 
     impl ModelsDev {
@@ -160,8 +242,14 @@ mod raw {
                                 .as_ref()
                                 .and_then(|l| l.context)
                                 .map(|n| n as usize),
+                            max_output_tokens: m
+                                .limit
+                                .as_ref()
+                                .and_then(|l| l.output)
+                                .map(|n| n as usize),
                             reasoning: m.reasoning,
                             vision: m.accepts_image_input(),
+                            reasoning_options: m.reasoning_options(),
                         })
                         .collect();
 
@@ -194,11 +282,13 @@ fn protocol_from_npm(npm: &str) -> Option<Protocol> {
     match npm {
         n if n.contains("anthropic") => Some(Protocol::Anthropic),
         "@ai-sdk/google" | "@ai-sdk/google-vertex" => Some(Protocol::Gemini),
+        // OpenAI-compatible, but reasoning is controlled the Cerebras way -
+        // routed to `sweet_llm::CerebrasProvider` by the factory.
+        "@ai-sdk/cerebras" => Some(Protocol::Cerebras),
         _ => {
             let openai_like = [
                 "@ai-sdk/openai",
                 "@ai-sdk/openai-compatible",
-                "@ai-sdk/cerebras",
                 "@ai-sdk/groq",
                 "@ai-sdk/deepinfra",
                 "@ai-sdk/mistral",
@@ -270,9 +360,13 @@ impl Catalog {
         let cache_path = Self::cache_path()?;
 
         if let Ok(cached) = Self::load_from_cache(&cache_path) {
-            if let Ok(elapsed) = cached.fetched_at.elapsed() {
-                if elapsed < CACHE_TTL {
-                    return Ok(cached);
+            // Ignore a cache written by an older shirl: its parsed shape (and
+            // e.g. protocol mapping) may differ from what this build expects.
+            if cached.schema_version == CATALOG_SCHEMA_VERSION {
+                if let Ok(elapsed) = cached.fetched_at.elapsed() {
+                    if elapsed < CACHE_TTL {
+                        return Ok(cached);
+                    }
                 }
             }
         }
@@ -330,6 +424,7 @@ impl Catalog {
         Ok(Catalog {
             providers,
             fetched_at: SystemTime::now(),
+            schema_version: CATALOG_SCHEMA_VERSION,
         })
     }
 
@@ -374,7 +469,7 @@ mod tests {
         );
         assert_eq!(
             protocol_from_npm("@ai-sdk/cerebras"),
-            Some(Protocol::OpenAI)
+            Some(Protocol::Cerebras)
         );
         assert_eq!(protocol_from_npm("@ai-sdk/groq"), Some(Protocol::OpenAI));
     }
@@ -543,6 +638,7 @@ mod tests {
                 models: vec![],
             }],
             fetched_at: SystemTime::now(),
+            schema_version: CATALOG_SCHEMA_VERSION,
         };
         assert!(catalog.get_provider("openai").is_some());
         assert!(catalog.get_provider("anthropic").is_none());
@@ -698,11 +794,14 @@ mod tests {
                     id: "gpt-4o".to_string(),
                     name: "GPT-4o".to_string(),
                     context_window: Some(128000),
+                    max_output_tokens: Some(16384),
                     reasoning: false,
                     vision: false,
+                    reasoning_options: vec![],
                 }],
             }],
             fetched_at: SystemTime::now(),
+            schema_version: CATALOG_SCHEMA_VERSION,
         };
 
         catalog.save_to_cache(&path).unwrap();
@@ -711,6 +810,86 @@ mod tests {
         assert_eq!(loaded.providers[0].id, "openai");
         assert_eq!(loaded.providers[0].models.len(), 1);
         assert_eq!(loaded.providers[0].models[0].id, "gpt-4o");
+        assert_eq!(loaded.schema_version, CATALOG_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn cache_without_schema_version_defaults_to_zero() {
+        // A cache written by an older shirl has no `schema_version` field; it
+        // must deserialize (default 0) and compare unequal to the current
+        // version so `load` treats it as stale.
+        let json = r#"{
+            "providers": [],
+            "fetched_at": { "secs_since_epoch": 0, "nanos_since_epoch": 0 }
+        }"#;
+        let catalog: Catalog = serde_json::from_str(json).unwrap();
+        assert_eq!(catalog.schema_version, 0);
+        assert_ne!(catalog.schema_version, CATALOG_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn reasoning_options_parsed_for_each_dialect() {
+        let json = r#"{
+            "p": {
+                "id": "p",
+                "name": "P",
+                "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1",
+                "env": [],
+                "models": {
+                    "toggler": {
+                        "id": "toggler", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [{"type": "toggle"}]
+                    },
+                    "efforter": {
+                        "id": "efforter", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [{"type": "effort", "values": ["low", "high"]}]
+                    },
+                    "budgeter": {
+                        "id": "budgeter", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [{"type": "budget_tokens", "min": 1024, "max": 32000}]
+                    },
+                    "futurist": {
+                        "id": "futurist", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [{"type": "toggle"}, {"type": "some_new_type"}]
+                    },
+                    "plain": {
+                        "id": "plain", "tool_call": true, "reasoning": false
+                    }
+                }
+            }
+        }"#;
+
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        let by_id = |id: &str| {
+            providers[0]
+                .models
+                .iter()
+                .find(|m| m.id == id)
+                .unwrap()
+                .reasoning_options
+                .clone()
+        };
+
+        assert_eq!(by_id("toggler"), vec![ReasoningOption::Toggle]);
+        assert_eq!(
+            by_id("efforter"),
+            vec![ReasoningOption::Effort {
+                values: vec!["low".to_string(), "high".to_string()]
+            }]
+        );
+        assert_eq!(
+            by_id("budgeter"),
+            vec![ReasoningOption::BudgetTokens {
+                min: Some(1024),
+                max: Some(32000)
+            }]
+        );
+        // An unrecognized dialect is dropped, not fatal - known ones survive.
+        assert_eq!(by_id("futurist"), vec![ReasoningOption::Toggle]);
+        // No `reasoning_options` field -> empty.
+        assert!(by_id("plain").is_empty());
     }
 
     #[test]

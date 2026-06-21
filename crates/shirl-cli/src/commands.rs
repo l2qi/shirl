@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use shirl_agents::agents::{self, AgentKind, ModeCommand};
-use shirl_core::AuthStore;
+use shirl_core::{AuthStore, ReasoningPref};
+use shirl_llm::catalog::ReasoningOption;
 use sweet_agent::{Agent, AgentIo, CommandRouter, TurnResult};
 use sweet_core::{Message, Model};
 use tokio::sync::Mutex;
@@ -19,7 +20,7 @@ use crate::RuntimeCtx;
 const MAX_REVIEW_DIFF_BYTES: usize = 30_000;
 
 /// Viewport redraw cadence while a turn (model call or slow slash command) is
-/// in flight. 150 ms ≈ 17 frames per breath cycle for the `⏺` indicator —
+/// in flight. 150 ms ~ 17 frames per breath cycle for the `⏺` indicator -
 /// smooth without burning cycles.
 pub(crate) const REDRAW_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
 
@@ -32,7 +33,7 @@ pub(crate) async fn default_review_instruction(cwd: &Path) -> Option<String> {
     let output = match output {
         Ok(o) if o.status.success() => o,
         _ => {
-            // No commits yet (or not a git repo) — diff against the empty
+            // No commits yet (or not a git repo) - diff against the empty
             // tree. Fails harmlessly if we're outside a repo.
             tokio::process::Command::new("git")
                 .args(["diff"])
@@ -65,7 +66,7 @@ pub(crate) async fn handle_chat_input(
     let agent = ctx.agent;
     let trimmed = line.trim();
     if trimmed.starts_with('/') {
-        // Echo slash commands immediately — no model to cancel first.
+        // Echo slash commands immediately - no model to cancel first.
         {
             let mut io_guard = ctx.shared_io.lock().await;
             io_guard.echo_prompt(line)?;
@@ -82,6 +83,9 @@ pub(crate) async fn handle_chat_input(
                 "provider" => {
                     handle_provider_command(args, ctx, cmd_rx).await?;
                 }
+                "reasoning" => {
+                    handle_reasoning_command(args, ctx, *active_agent, model_handle).await?;
+                }
                 "capabilities" => {
                     let lines = capability_lines(*active_agent, agent, commands).await;
                     let mut io_guard = ctx.shared_io.lock().await;
@@ -94,7 +98,7 @@ pub(crate) async fn handle_chat_input(
                     let mut io_guard = ctx.shared_io.lock().await;
                     io_guard.insert_lines(&[
                         "Keyboard shortcuts:".to_string(),
-                        "  Shift+Tab  cycle permission mode (normal → accept edits → auto)"
+                        "  Shift+Tab  cycle permission mode (normal -> accept edits -> auto)"
                             .to_string(),
                         "  Ctrl+J     insert newline".to_string(),
                         "  Ctrl+C     cancel current turn".to_string(),
@@ -127,7 +131,7 @@ pub(crate) async fn handle_chat_input(
                         // so this check is safe before the action path.
                         if let Some(template) = commands.template(name) {
                             // Cancel any in-flight turn before spawning the
-                            // template-driven turn — same sequence as plain
+                            // template-driven turn - same sequence as plain
                             // text input. Without this the old task keeps
                             // running detached, holding the agent mutex and
                             // interleaving output.
@@ -153,7 +157,7 @@ pub(crate) async fn handle_chat_input(
                             // outgoing transcript's pending span on a detached
                             // task. The span is claimed from the pre-rotation
                             // snapshot before the command runs, so nothing is
-                            // lost or double-distilled — and `/new` itself
+                            // lost or double-distilled - and `/new` itself
                             // returns instantly. (Called before taking the
                             // agent lock: spawn_distill locks it briefly.)
                             if name == "new" {
@@ -171,7 +175,7 @@ pub(crate) async fn handle_chat_input(
                             let mut agent_guard = agent.lock().await;
                             // Snapshot the session id before invoking the command;
                             // `/new` swaps it, `/clear` keeps it but wipes items.
-                            // Either case invalidates the current title — we
+                            // Either case invalidates the current title - we
                             // detect both by checking the id changed or the
                             // session is now empty.
                             let prev_id = agent_guard.session().id().clone();
@@ -203,7 +207,7 @@ pub(crate) async fn handle_chat_input(
                             io_guard.clear_working();
                             io_guard.draw()?;
                             // Check for session reset regardless of whether the
-                            // command produced a message — a future handler may
+                            // command produced a message - a future handler may
                             // return Ok(None) after resetting the session.
                             let session = agent_guard.session();
                             let session_reset =
@@ -281,7 +285,7 @@ async fn open_model_picker(
     }
 
     // The main loop is parked here for the picker's lifetime, so config cannot
-    // change underneath us — a snapshot keeps the lock from being held across
+    // change underneath us - a snapshot keeps the lock from being held across
     // the (potentially long) interaction.
     let config = ctx.config.lock().await.clone();
     let selection = crate::picker::run_model_picker(
@@ -337,6 +341,145 @@ async fn handle_model_command(
     let mut io_guard = ctx.shared_io.lock().await;
     io_guard.insert_lines(&[format!(
         "Ambiguous model '{trimmed}'. Use provider/model_id (e.g. anthropic/claude-sonnet-4.5)"
+    )])?;
+    Ok(())
+}
+
+/// Describe a reasoning override for display (`/reasoning` with no args, and the
+/// confirmation line). `None` is the catalog default.
+fn describe_reasoning_pref(pref: Option<&ReasoningPref>) -> String {
+    let Some(p) = pref else {
+        return "default (catalog)".to_string();
+    };
+    let mut parts = Vec::new();
+    if let Some(enabled) = p.enabled {
+        parts.push(if enabled { "on" } else { "off" }.to_string());
+    }
+    if let Some(effort) = &p.effort {
+        parts.push(format!("effort={effort}"));
+    }
+    if let Some(budget) = p.budget_tokens {
+        parts.push(format!("budget={budget}"));
+    }
+    if parts.is_empty() {
+        "default (catalog)".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+/// Parse a `/reasoning` argument against the model's supported dialects. Returns
+/// `Ok(None)` to clear the override, `Ok(Some(pref))` to set it, or `Err(msg)`
+/// when the argument doesn't fit what the model supports.
+fn parse_reasoning_arg(
+    arg: &str,
+    options: &[ReasoningOption],
+) -> std::result::Result<Option<ReasoningPref>, String> {
+    let lower = arg.to_ascii_lowercase();
+    match lower.as_str() {
+        "default" | "reset" | "clear" => return Ok(None),
+        "on" => {
+            return Ok(Some(ReasoningPref {
+                enabled: Some(true),
+                ..Default::default()
+            }))
+        }
+        "off" => {
+            return Ok(Some(ReasoningPref {
+                enabled: Some(false),
+                ..Default::default()
+            }))
+        }
+        _ => {}
+    }
+
+    if let Ok(budget) = arg.parse::<u32>() {
+        let supports_budget = options
+            .iter()
+            .any(|o| matches!(o, ReasoningOption::BudgetTokens { .. }));
+        if !supports_budget {
+            return Err("this model does not support a thinking budget".to_string());
+        }
+        return Ok(Some(ReasoningPref {
+            budget_tokens: Some(budget),
+            ..Default::default()
+        }));
+    }
+
+    let effort_values: Vec<&str> = options
+        .iter()
+        .filter_map(|o| match o {
+            ReasoningOption::Effort { values } => Some(values.iter().map(|s| s.as_str())),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    if effort_values.is_empty() {
+        return Err(format!("unknown reasoning option '{arg}'"));
+    }
+    if !effort_values.iter().any(|v| v.eq_ignore_ascii_case(arg)) {
+        return Err(format!(
+            "'{arg}' is not a valid effort level (expected one of {})",
+            effort_values.join("/")
+        ));
+    }
+    Ok(Some(ReasoningPref {
+        effort: Some(lower),
+        ..Default::default()
+    }))
+}
+
+/// `/reasoning [on|off|<effort>|<budget>|default]` - view or change how the
+/// active agent's model reasons, validated against its catalog dialect, then
+/// rebuild the model in place and persist the override.
+async fn handle_reasoning_command(
+    args: &str,
+    ctx: &RuntimeCtx<'_>,
+    active_agent: AgentKind,
+    model_handle: &mut Option<JoinHandle<sweet_core::Result<TurnResult>>>,
+) -> Result<()> {
+    let (provider_id, model_id, current) = {
+        let config = ctx.config.lock().await;
+        let agent = active_agent.display_name();
+        (
+            config.provider_for(agent).to_string(),
+            config.model_for(agent).to_string(),
+            config.reasoning_for(agent).cloned(),
+        )
+    };
+    let options = crate::model::lookup_reasoning_options(ctx.catalog, &provider_id, &model_id);
+    let summary = crate::model::reasoning_capability_summary(&options);
+
+    let arg = args.trim();
+    if arg.is_empty() {
+        let mut io_guard = ctx.shared_io.lock().await;
+        io_guard.insert_lines(&[
+            format!(
+                "Reasoning for {}/{}: {}",
+                provider_id,
+                model_id,
+                describe_reasoning_pref(current.as_ref())
+            ),
+            format!("Supported: {summary}"),
+            "Usage: /reasoning <on|off|effort-level|budget-tokens|default>".to_string(),
+        ])?;
+        return Ok(());
+    }
+
+    let pref = match parse_reasoning_arg(arg, &options) {
+        Ok(pref) => pref,
+        Err(msg) => {
+            let mut io_guard = ctx.shared_io.lock().await;
+            io_guard.insert_lines(&[format!("Error: {msg}"), format!("Supported: {summary}")])?;
+            return Ok(());
+        }
+    };
+
+    let label = describe_reasoning_pref(pref.as_ref());
+    switch::apply_reasoning_switch(pref, ctx, active_agent, model_handle).await?;
+    let mut io_guard = ctx.shared_io.lock().await;
+    io_guard.insert_lines(&[format!(
+        "⏺ Reasoning set to {label} for {provider_id}/{model_id}"
     )])?;
     Ok(())
 }
@@ -487,7 +630,7 @@ async fn capability_lines(
     cmds.sort_unstable();
 
     let mut lines = vec![format!(
-        "Capabilities — {} agent",
+        "Capabilities - {} agent",
         active_agent.display_name()
     )];
     lines.push(format!("  tools ({}):", tools.len()));
