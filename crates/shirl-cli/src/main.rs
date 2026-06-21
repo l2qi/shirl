@@ -227,7 +227,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     let sandbox: Arc<dyn Sandbox> = if sandbox_enabled {
         match OsSandbox::new(
             std::env::current_dir()
-                .context("current directory does not exist — cd into a valid directory first")?,
+                .context("current directory does not exist - cd into a valid directory first")?,
             cli_args.sandbox_policy,
             // Let the agent read back plan/review files under ~/.shirl/sessions.
             tracking::sandbox_read_roots(),
@@ -254,7 +254,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
         let store = models.lock().await;
         store
             .get(AgentKind::Main)
-            .context("no model configured for main agent — run /model to set one")?
+            .context("no model configured for main agent - run /model to set one")?
     };
 
     let session_id = session.id().clone();
@@ -453,7 +453,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                     match result {
                         Ok(Ok(turn_result)) => {
                             match turn_result {
-                                TurnResult::Message(_) => {
+                                TurnResult::Message(ref msg) => {
                                     // End the turn and capture the session id
                                     // so we can decide whether to title.
                                     let current_session_id = {
@@ -461,10 +461,17 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                                         let agent_guard = agent.lock().await;
                                         let session = agent_guard.session();
                                         io_guard.on_turn_end(session).await?;
+                                        if let Some(w) = msg
+                                            .finish_reason
+                                            .as_ref()
+                                            .and_then(turn::finish_reason_warning)
+                                        {
+                                            io_guard.insert_lines(&[w])?;
+                                        }
                                         session.id().clone()
                                     };
 
-                                    // Cadence-gated background distill pass —
+                                    // Cadence-gated background distill pass -
                                     // replaces the in-turn AfterTurn procedure
                                     // so the UI never waits on it.
                                     if let Some(wiring) = memory_wiring.as_ref() {
@@ -612,7 +619,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                             turn::cycle_permission_mode(&permission_handle, &shared_io, sandbox_enabled, &sandbox_warning_shown).await?;
                         }
                         Some(Command::ToggleTranscript) => {
-                            // Swallow — transcript view is only available when idle.
+                            // Swallow - transcript view is only available when idle.
                             // Opening during a turn causes an abrupt switch
                             // when the handle resolves and the main loop
                             // re-enters Phase 1.
@@ -643,7 +650,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                             turn::cancel_turn(&agent, &shared_io, &mut model_handle).await?;
                         }
                     }
-                    // None: channel closed — agent task gone, nothing to do.
+                    // None: channel closed - agent task gone, nothing to do.
                 }
             }
         } else {
