@@ -4,7 +4,7 @@
 //! Inline file-path picker rendering.
 //!
 //! Renders a floating list of file-path matches directly above the input line
-//! inside the inline viewport — no alternate screen, no popup.
+//! inside the inline viewport - no alternate screen, no popup.
 
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -38,7 +38,7 @@ pub struct FilePickerState {
     pub selected: usize,
     /// The user's current filter text (after the `@`).
     pub filter: String,
-    /// Scroll offset — the index of the first visible entry.
+    /// Scroll offset - the index of the first visible entry.
     pub scroll: usize,
 }
 

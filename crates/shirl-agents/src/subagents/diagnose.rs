@@ -41,7 +41,7 @@ const DIAGNOSE_PROMPT: &str =
     - Trace the call chain by searching for function definitions\n\
     - Report your diagnosis clearly: root cause, affected files, and suggested fix direction\n\
     - If the cause is ambiguous, list the most likely candidates ranked by probability\n\
-    - Do not modify any files — you are read-only";
+    - Do not modify any files - you are read-only";
 
 pub fn diagnose_spec(sandbox: Arc<dyn Sandbox>) -> SubagentSpec {
     SubagentSpec::new(

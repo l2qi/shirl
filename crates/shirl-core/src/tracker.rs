@@ -7,7 +7,7 @@
 //! The main agent drifts off a plan on long tasks because the plan, injected as
 //! a single user message, gets summarized away once history compaction kicks in.
 //! Two channels survive compaction: on-disk files and the per-turn system
-//! prompt. This module uses both — the report is written to disk (the agent can
+//! prompt. This module uses both - the report is written to disk (the agent can
 //! re-read it with `ReadFile` any time) and a live todo list + a pointer to the
 //! report is re-rendered into the system instructions every turn via
 //! [`DynamicPrompt`].
@@ -122,7 +122,7 @@ impl TrackerInner {
     }
 }
 
-/// Per-session workflow state. Cheap to clone (`Arc` inside) — clone it to hand
+/// Per-session workflow state. Cheap to clone (`Arc` inside) - clone it to hand
 /// the same state to the `write_todos` tool, the [`DynamicPrompt`], and the
 /// caller that persists incoming plans/reviews.
 #[derive(Clone)]
@@ -179,9 +179,9 @@ impl PlanTracker {
         ToolSpec::new(
             "write_todos",
             "Record or update your working todo list for the current task. Pass the \
-             COMPLETE list every call — it REPLACES the previous one. Use it after \
+             COMPLETE list every call - it REPLACES the previous one. Use it after \
              receiving a plan or review to track the items you will address (a subset of \
-             the report's items is fine — honor what the user asked for), and for \
+             the report's items is fine - honor what the user asked for), and for \
              multi-step direct work. Set each item's status (pending, in_progress, done) \
              and keep it current as you work. The list is shown back to you every turn \
              until all items are done. Skip it for trivial one-step requests.",
@@ -208,7 +208,7 @@ impl DynamicPrompt for PlanTracker {
 }
 
 /// Render the reminder block, or `None` when there is nothing to anchor (no
-/// active report and no todos) — so trivial direct work carries zero overhead.
+/// active report and no todos) - so trivial direct work carries zero overhead.
 fn render_state(session_dir: &Path, state: &TrackerState) -> Option<String> {
     if state.source.is_none() && state.todos.is_empty() {
         return None;
@@ -218,7 +218,7 @@ fn render_state(session_dir: &Path, state: &TrackerState) -> Option<String> {
     if let Some(src) = &state.source {
         let abs = session_dir.join(&src.path);
         out.push_str(&format!(
-            "## Active {}\nSource file: {} — re-read it with ReadFile for full detail.\n",
+            "## Active {}\nSource file: {} - re-read it with ReadFile for full detail.\n",
             src.kind.label(),
             abs.display(),
         ));
@@ -403,7 +403,7 @@ mod tests {
             tracker.save_plan("# Resume me").unwrap();
             write_todos(&tracker, &[("item", TodoStatus::InProgress)]);
         }
-        // Fresh load from the same dir — simulates --resume.
+        // Fresh load from the same dir - simulates --resume.
         let reloaded = PlanTracker::load(dir.path().to_path_buf());
         let rendered = reloaded.render().unwrap();
         assert!(rendered.contains("## Active plan"));
@@ -445,7 +445,7 @@ mod tests {
     }
 
     // The whole point of the feature: the reminder rides in the system prompt,
-    // which is rebuilt from the tracker every turn — so it survives compaction
+    // which is rebuilt from the tracker every turn - so it survives compaction
     // wiping the session, the exact failure that made Main drift off the plan.
     #[tokio::test]
     async fn reminder_survives_session_being_cleared() {

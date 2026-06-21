@@ -15,7 +15,7 @@ use crate::subagents::{explore::explore_spec, web_research::web_research_spec};
 
 const PLAN_PROMPT: &str =
     "You are Shirl's planning agent. You produce numbered implementation plans. \
-    You do NOT implement — you only have read-only tools.\n\
+    You do NOT implement - you only have read-only tools.\n\
     \n\
     Use explore for codebase lookup, Glob and DirectoryTree for project structure, \
     HeadFile and TailFile to preview files, Grep to search for symbols or patterns. \

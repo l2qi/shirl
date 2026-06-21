@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Ryuichi Intellectual Property LLC and the Shirl project contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Single-line input editor state and key→action mapping.
+//! Single-line input editor state and key->action mapping.
 //!
 //! Pure state plus a free `on_key` function so the editor logic is testable
 //! without a terminal. The viewport renderer reads `current()`/`cursor()` to
@@ -101,7 +101,7 @@ impl InputState {
     }
 
     /// Insert a string at the cursor position in one operation.
-    /// Equivalent to calling `insert_char` per character but avoids O(n²)
+    /// Equivalent to calling `insert_char` per character but avoids O(n^2)
     /// for large pastes.
     pub(super) fn insert_str(&mut self, s: &str) {
         if s.is_empty() {
@@ -176,14 +176,14 @@ impl InputState {
     /// For single-line or unwrapped text this is equivalent to `home()`.
     /// When already at the start of a visual line, steps back to the
     /// previous visual line's start so repeated presses chain backwards
-    /// — the mirror of how Ctrl+E chains forwards.
+    /// - the mirror of how Ctrl+E chains forwards.
     fn ctrl_a(&mut self, width: usize) -> bool {
         let info = visual_line_info(&self.input, self.cursor, width);
         let target = info.line_starts[info.vis_line];
         if self.cursor == target {
             // Already at the start of this visual line. Step back to the
             // previous visual line's start so repeated Ctrl+A presses chain
-            // backwards — the mirror of how Ctrl+E chains forwards.
+            // backwards - the mirror of how Ctrl+E chains forwards.
             if info.vis_line == 0 {
                 return false;
             }
@@ -198,7 +198,7 @@ impl InputState {
     /// Move cursor to the end of the current visual line.
     /// For single-line or unwrapped text this is equivalent to `end()`.
     /// When already at the end of a visual line, steps forward to the next
-    /// visual line's end so repeated presses chain forwards — the mirror of
+    /// visual line's end so repeated presses chain forwards - the mirror of
     /// how Ctrl+A chains backwards.
     fn ctrl_e(&mut self, width: usize) -> bool {
         let info = visual_line_info(&self.input, self.cursor, width);
@@ -351,7 +351,7 @@ fn char_index_at_visual_pos(
     char_idx
 }
 
-/// Char index of the end of visual line `target_line` — the position just
+/// Char index of the end of visual line `target_line` - the position just
 /// past its last visible character. For a line terminated by a hard newline
 /// that is the `\n`'s index; for a soft-wrapped line it is the next line's
 /// start; for the final visual line it is the end of the text.
@@ -377,7 +377,7 @@ fn visual_line_end(text: &str, line_starts: &[usize], target_line: usize) -> usi
 /// What the input thread should do after a key event.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum InputOutcome {
-    /// User pressed Enter — line ready to submit. State is already cleared.
+    /// User pressed Enter - line ready to submit. State is already cleared.
     Submit(String),
     /// State changed; redraw needed.
     Redraw,
@@ -386,11 +386,11 @@ pub(super) enum InputOutcome {
     Cancel,
     /// User asked to exit (double Ctrl+C, double Ctrl+D on empty line).
     Exit,
-    /// Shift+Tab — cycle permission mode.
+    /// Shift+Tab - cycle permission mode.
     CycleMode,
-    /// Ctrl+O — toggle transcript view.
+    /// Ctrl+O - toggle transcript view.
     ToggleTranscript,
-    /// Ctrl+V / Alt+V — read an image from the system clipboard and splice
+    /// Ctrl+V / Alt+V - read an image from the system clipboard and splice
     /// `@"path"` into the input buffer.
     PasteImage,
     /// Nothing to do.
@@ -468,7 +468,7 @@ pub(super) fn on_key(
     // - Ctrl+J: sends the actual ASCII LF byte (0x0A). Works on every
     //   terminal universally and is the reliable way to type a newline on
     //   macOS. Trade-off: a quick brush of Ctrl while typing 'j' will
-    //   insert a spurious newline — accepted because there's no other
+    //   insert a spurious newline - accepted because there's no other
     //   universal chord available.
     if (matches!(key.code, KeyCode::Enter)
         && (key.modifiers.contains(KeyModifiers::ALT)
@@ -517,7 +517,7 @@ pub(super) fn on_key(
         return InputOutcome::ToggleTranscript;
     }
 
-    // Ctrl+V (universal) or Alt+V (where Option/Alt sends Meta) — paste an
+    // Ctrl+V (universal) or Alt+V (where Option/Alt sends Meta) - paste an
     // image from the system clipboard. Text paste goes through bracketed
     // paste (Cmd+V on macOS, Ctrl+Shift+V on Linux) as Event::Paste, so the
     // raw KeyEvent reaching here is unused on every supported terminal and
@@ -533,7 +533,7 @@ pub(super) fn on_key(
     // macOS terminals that send Option as Meta (iTerm2, Ghostty, Alacritty,
     // kitty). macOS Terminal.app's default Option mode types `√` for
     // Option+V, which arrives as Char('√') without a modifier and is
-    // inserted as text — no conflict.
+    // inserted as text - no conflict.
     if matches!(key.code, KeyCode::Char('v') | KeyCode::Char('V'))
         && !key.modifiers.contains(KeyModifiers::SHIFT)
         && (key.modifiers.contains(KeyModifiers::CONTROL)
@@ -1064,7 +1064,7 @@ mod tests {
         // Regression: `contains(CONTROL)` is a bit-set check, so without
         // the SHIFT exclusion this combo would also match. Some Linux
         // terminal configurations leak Ctrl+Shift+V through to the TUI
-        // instead of converting it to bracketed paste — letting it hit
+        // instead of converting it to bracketed paste - letting it hit
         // PasteImage would surface a confusing "no image in clipboard"
         // warning on every text-paste attempt in those setups.
         let mut s = InputState::default();
@@ -1164,7 +1164,7 @@ mod tests {
 
     #[test]
     fn ctrl_a_on_multiline_moves_to_visual_start() {
-        // "hello\nworld" — cursor on 'r' (char index 8, visual line 1, col 2)
+        // "hello\nworld" - cursor on 'r' (char index 8, visual line 1, col 2)
         let mut s = InputState::default();
         s.input = "hello\nworld".to_string();
         s.cursor = 8;
@@ -1177,7 +1177,7 @@ mod tests {
 
     #[test]
     fn ctrl_a_chains_backwards_through_multiline() {
-        // "hello\nworld" — start on second logical line, already at its start
+        // "hello\nworld" - start on second logical line, already at its start
         let mut s = InputState::default();
         s.input = "hello\nworld".to_string();
         s.cursor = 6; // start of second visual line ('w')
@@ -1256,7 +1256,7 @@ mod tests {
 
     #[test]
     fn ctrl_e_on_multiline_moves_to_visual_end() {
-        // "hello\nworld" — cursor at start of second line (char index 6)
+        // "hello\nworld" - cursor at start of second line (char index 6)
         let mut s = InputState::default();
         s.input = "hello\nworld".to_string();
         s.cursor = 6;
@@ -1269,7 +1269,7 @@ mod tests {
 
     #[test]
     fn ctrl_e_on_first_line_of_multiline_stops_before_newline() {
-        // "hello\nworld" — cursor inside "hello". Ctrl+E must land at the end
+        // "hello\nworld" - cursor inside "hello". Ctrl+E must land at the end
         // of "hello" (char index 5, before the \n), not on the next line.
         let mut s = InputState::default();
         s.input = "hello\nworld".to_string();
@@ -1282,7 +1282,7 @@ mod tests {
 
     #[test]
     fn ctrl_e_chains_forwards_through_multiline() {
-        // "hello\nworld" — Ctrl+E goes to the end of "hello", then a second
+        // "hello\nworld" - Ctrl+E goes to the end of "hello", then a second
         // press chains to the end of "world", then has nowhere left to go.
         let mut s = InputState::default();
         s.input = "hello\nworld".to_string();
@@ -1371,7 +1371,7 @@ mod tests {
         let mut chord = ChordTracker::new();
         let outcome = on_key(&mut s, &[], &mut chord, false, key(KeyCode::Up), 5, &cmds());
         assert_eq!(outcome, InputOutcome::Redraw);
-        // Same column (2) on first visual line → char index 2 ('c')
+        // Same column (2) on first visual line -> char index 2 ('c')
         assert_eq!(s.cursor(), 2);
     }
 
@@ -1392,7 +1392,7 @@ mod tests {
             &cmds(),
         );
         assert_eq!(outcome, InputOutcome::Redraw);
-        // Same column (2) on second visual line → char index 7 ('h')
+        // Same column (2) on second visual line -> char index 7 ('h')
         assert_eq!(s.cursor(), 7);
     }
 
@@ -1423,7 +1423,7 @@ mod tests {
         let mut s = InputState::default();
         s.input = "abcdefghij".to_string();
         s.cursor = 10;
-        // history_next on no history_idx is a no-op → returns false → None
+        // history_next on no history_idx is a no-op -> returns false -> None
         let mut chord = ChordTracker::new();
         let outcome = on_key(
             &mut s,
@@ -1439,7 +1439,7 @@ mod tests {
 
     #[test]
     fn up_down_preserves_column() {
-        // "abcdefghij\nABCDEFGHIJ" — two logical lines of equal length.
+        // "abcdefghij\nABCDEFGHIJ" - two logical lines of equal length.
         // Cursor at col 3 on second line (char index 14, 'D')
         let mut s = InputState::default();
         s.input = "abcdefghij\nABCDEFGHIJ".to_string();
@@ -1454,7 +1454,7 @@ mod tests {
             80,
             &cmds(),
         );
-        // Col 3 on first line → char index 3 ('d')
+        // Col 3 on first line -> char index 3 ('d')
         assert_eq!(s.cursor(), 3);
         let _ = on_key(
             &mut s,
@@ -1465,13 +1465,13 @@ mod tests {
             80,
             &cmds(),
         );
-        // Col 3 restored on second line → char index 14 ('D')
+        // Col 3 restored on second line -> char index 14 ('D')
         assert_eq!(s.cursor(), 14);
     }
 
     #[test]
     fn up_down_clamps_to_shorter_line() {
-        // "abcdefghij\nxy" — first line 10 chars, second line 2 chars.
+        // "abcdefghij\nxy" - first line 10 chars, second line 2 chars.
         let mut s = InputState::default();
         s.input = "abcdefghij\nxy".to_string();
         // Cursor at col 8 on first line (char index 8, 'i')
@@ -1486,7 +1486,7 @@ mod tests {
             80,
             &cmds(),
         );
-        // Second line is only 2 chars → clamp to col 2 → char index 13 (end of "xy")
+        // Second line is only 2 chars -> clamp to col 2 -> char index 13 (end of "xy")
         assert_eq!(s.cursor(), 13);
         // Now Up should restore desired_col=8 on the first line
         let _ = on_key(
@@ -1503,7 +1503,7 @@ mod tests {
 
     #[test]
     fn up_into_short_hard_wrapped_line_clamps_before_newline() {
-        // "xy\nabcdefghij" — line 0 is a short, \n-terminated logical line.
+        // "xy\nabcdefghij" - line 0 is a short, \n-terminated logical line.
         // Up from a column past its length must clamp to the end of "xy"
         // (char index 2, before the \n), not step onto the next line.
         let mut s = InputState::default();
@@ -1577,7 +1577,7 @@ mod tests {
         s.cursor = 13;
         let mut chord = ChordTracker::new();
 
-        // Up → col 3 on visual line 0 (char index 3, 'd')
+        // Up -> col 3 on visual line 0 (char index 3, 'd')
         let _ = on_key(
             &mut s,
             &[],
@@ -1589,7 +1589,7 @@ mod tests {
         );
         assert_eq!(s.cursor(), 3);
 
-        // Down → col 3 on visual line 1 (char index 13, 'n')
+        // Down -> col 3 on visual line 1 (char index 13, 'n')
         let _ = on_key(
             &mut s,
             &[],
@@ -1601,7 +1601,7 @@ mod tests {
         );
         assert_eq!(s.cursor(), 13);
 
-        // Down → col 3 on visual line 2 (char index 23, 'x')
+        // Down -> col 3 on visual line 2 (char index 23, 'x')
         let _ = on_key(
             &mut s,
             &[],
@@ -1613,7 +1613,7 @@ mod tests {
         );
         assert_eq!(s.cursor(), 23);
 
-        // Up → col 3 restored on visual line 1 (char index 13)
+        // Up -> col 3 restored on visual line 1 (char index 13)
         let _ = on_key(
             &mut s,
             &[],
@@ -1631,15 +1631,15 @@ mod tests {
         // "abcdefghij\nABCDEFGHIJ" with width=6:
         // visual line 0: "abcdef" (chars 0-5)
         // visual line 1: "ghij"   (chars 6-9)
-        // visual line 2: "\n" → "ABCDEF" (chars 11-16)
+        // visual line 2: "\n" -> "ABCDEF" (chars 11-16)
         // visual line 3: "GHIJ"   (chars 17-20)
         let mut s = InputState::default();
         s.input = "abcdefghij\nABCDEFGHIJ".to_string();
-        // Cursor at char 18 ('H') — visual line 3, col 1
+        // Cursor at char 18 ('H') - visual line 3, col 1
         s.cursor = 18;
         let mut chord = ChordTracker::new();
         let _ = on_key(&mut s, &[], &mut chord, false, key(KeyCode::Up), 6, &cmds());
-        // Up to visual line 2, col 1 → char 12 ('B')
+        // Up to visual line 2, col 1 -> char 12 ('B')
         assert_eq!(s.cursor(), 12);
     }
 
@@ -1681,7 +1681,7 @@ mod tests {
         // column on the ASCII line, i.e. char index 4 of "wxyz...".
         let mut s = InputState::default();
         s.input = "句a\nwxyz".to_string();
-        // Cursor after "句a" on line 0 → display col 3 (2 + 1).
+        // Cursor after "句a" on line 0 -> display col 3 (2 + 1).
         s.cursor = 2;
         let mut chord = ChordTracker::new();
         let _ = on_key(
@@ -1693,7 +1693,7 @@ mod tests {
             80,
             &cmds(),
         );
-        // Line 1 "wxyz": display col 3 → char index 3 + line start 3 = 6 ('z').
+        // Line 1 "wxyz": display col 3 -> char index 3 + line start 3 = 6 ('z').
         assert_eq!(s.cursor(), 6);
     }
 
@@ -1707,7 +1707,7 @@ mod tests {
 
     #[test]
     fn visual_line_info_multiline_no_wrap() {
-        // "abc\ndef" — a=0 b=1 c=2 \n=3 d=4 e=5 f=6
+        // "abc\ndef" - a=0 b=1 c=2 \n=3 d=4 e=5 f=6
         let info = visual_line_info("abc\ndef", 6, 80);
         // cursor at 'f' (char 6), line 1, col 2
         assert_eq!(info.vis_line, 1);
@@ -1744,7 +1744,7 @@ mod tests {
     fn visual_line_info_full_line_before_newline_has_no_phantom_line() {
         // "abcde\nf" width 5: the first segment exactly fills the line and is
         // followed by a hard newline. The newline produces the break, so the
-        // layout is "abcde" | "f" — no phantom empty visual line in between
+        // layout is "abcde" | "f" - no phantom empty visual line in between
         // (matching what `wrap_line` renders).
         let info = visual_line_info("abcde\nf", 6, 5);
         assert_eq!(info.line_starts, vec![0, 6]);

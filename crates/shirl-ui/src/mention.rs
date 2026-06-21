@@ -74,7 +74,7 @@ pub(crate) fn splice_file_mention(
 /// filter), or `None` if no trigger is active.
 ///
 /// A `@` only counts as a trigger when it sits at the start of input or
-/// directly after whitespace — this avoids false triggers mid-token (e.g.
+/// directly after whitespace - this avoids false triggers mid-token (e.g.
 /// while typing `name@host`).
 ///
 /// `cursor` is a **char** index (from `InputState::cursor`).
@@ -120,13 +120,13 @@ mod tests {
     fn mention_filter_basic_trigger() {
         assert_eq!(mention_filter("@foo", 4), Some("foo".to_string()));
         assert_eq!(mention_filter("hello @bar", 10), Some("bar".to_string()));
-        // Just `@` with cursor right after — empty filter, picker opens.
+        // Just `@` with cursor right after - empty filter, picker opens.
         assert_eq!(mention_filter("@", 1), Some(String::new()));
     }
 
     #[test]
     fn mention_filter_skips_mid_token() {
-        // `name@host` is not a mention — `@` must follow whitespace or SOL.
+        // `name@host` is not a mention - `@` must follow whitespace or SOL.
         assert_eq!(mention_filter("name@host", 9), None);
         assert_eq!(mention_filter("foo@bar.com", 11), None);
     }
@@ -139,9 +139,9 @@ mod tests {
 
     #[test]
     fn mention_filter_boundary_cursor() {
-        // Cursor at 0 — no trigger.
+        // Cursor at 0 - no trigger.
         assert_eq!(mention_filter("@foo", 0), None);
-        // Cursor past end — no trigger (guard against bad callers).
+        // Cursor past end - no trigger (guard against bad callers).
         assert_eq!(mention_filter("@foo", 99), None);
     }
 
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn splice_file_mention_no_anchor_returns_none() {
         assert!(splice_file_mention("hello", 5, "x").is_none());
-        // Cursor at 0 — no `@` to anchor onto.
+        // Cursor at 0 - no `@` to anchor onto.
         assert!(splice_file_mention("@foo", 0, "x").is_none());
     }
 
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn quote_path_for_mention_path_with_backslash() {
-        // Backslashes alone don't trigger quoting — they're not ambiguous
+        // Backslashes alone don't trigger quoting - they're not ambiguous
         // in the whitespace-delimited @token parser. Only whitespace and
         // double-quotes trigger quoting.
         assert_eq!(

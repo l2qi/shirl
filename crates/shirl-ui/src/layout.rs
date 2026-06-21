@@ -90,7 +90,7 @@ pub(crate) fn span_width(text: &str, from: usize, to: usize) -> usize {
 /// is both the end of one visual row and the start of the next. `prefer_row_end`
 /// (set by `Ctrl+E`) renders it at the right edge of the row it closes; the
 /// default renders it at column 0 of the next row, which is what typing,
-/// `Ctrl+A`, and the arrows want. A *hard* newline is unambiguous — the cursor
+/// `Ctrl+A`, and the arrows want. A *hard* newline is unambiguous - the cursor
 /// always belongs on the new row.
 pub(crate) fn cursor_position(
     text: &str,
@@ -124,7 +124,7 @@ pub(crate) fn wrap_line(line: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::with_capacity(starts.len());
     for (i, &start) in starts.iter().enumerate() {
         let end = starts.get(i + 1).copied().unwrap_or(chars.len());
-        // A hard newline ends its visual line but is not drawn — drop it.
+        // A hard newline ends its visual line but is not drawn - drop it.
         let slice_end = if end > start && chars[end - 1] == '\n' {
             end - 1
         } else {
@@ -135,7 +135,7 @@ pub(crate) fn wrap_line(line: &str, width: usize) -> Vec<String> {
     lines
 }
 
-/// Truncate `s` to `max` chars, appending `…` when truncated.
+/// Truncate `s` to `max` chars, appending `...` when truncated.
 pub(crate) fn truncate_chars(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn wrap_line_splits_on_newlines() {
-        // Two short lines — no wrapping needed.
+        // Two short lines - no wrapping needed.
         let lines = wrap_line("hello\nworld", 80);
         assert_eq!(lines, vec!["hello", "world"]);
 
@@ -182,13 +182,13 @@ mod tests {
 
     #[test]
     fn cursor_at_end_of_full_soft_wrapped_line_stays_on_line() {
-        // Text fills the line exactly with no trailing chars — cursor must
+        // Text fills the line exactly with no trailing chars - cursor must
         // stay at col=width on the current line, not advance to a non-
         // existent next line (which would render below the input area).
         assert_eq!(cursor_position("abcdefghij", 10, 10, false), (0, 10));
         assert_eq!(cursor_position("a", 1, 1, false), (0, 1));
 
-        // When another char follows, the soft wrap is real — by default the
+        // When another char follows, the soft wrap is real - by default the
         // cursor moves to the start of the next line.
         assert_eq!(cursor_position("abcdefghijk", 10, 10, false), (1, 0));
 
@@ -215,7 +215,7 @@ mod tests {
         assert_eq!(cursor_position("abcdefghijk", 10, 10, true), (0, 10));
         assert_eq!(cursor_position("abcdefghijk", 10, 10, false), (1, 0));
 
-        // A hard newline ignores the affinity — the cursor is always on the
+        // A hard newline ignores the affinity - the cursor is always on the
         // new row.
         assert_eq!(cursor_position("abcde\nf", 6, 5, true), (1, 0));
 
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn cursor_position_counts_wide_glyphs_as_two_columns() {
-        // Reported bug: "俳句asd" — each kanji is two display cells, so the
+        // Reported bug: "俳句asd" - each kanji is two display cells, so the
         // cursor at the end sits at column 7 (2+2+1+1+1), not char-count 5.
         assert_eq!(cursor_position("俳句asd", 5, 80, false), (0, 7));
         // Cursor between the two kanji is at column 2.

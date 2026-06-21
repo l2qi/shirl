@@ -22,7 +22,7 @@ use shirl_ui::{Command, FileEntry, FilePickerState, SharedIo};
 #[derive(Clone, Default)]
 pub struct FileListCache {
     entries: Option<Arc<Vec<FileEntry>>>,
-    /// CWD at the time the cache was built — invalidated on directory change.
+    /// CWD at the time the cache was built - invalidated on directory change.
     built_for_cwd: Option<PathBuf>,
 }
 
@@ -84,7 +84,7 @@ fn walk_files(cwd: &Path) -> Vec<FileEntry> {
 // Fuzzy matching
 // ---------------------------------------------------------------------------
 
-/// A dead-simple case-insensitive substring matcher. Good enough for v1 —
+/// A dead-simple case-insensitive substring matcher. Good enough for v1 -
 /// real fuzzy matching (skipping characters) can be added later.
 fn matches_filter(entry: &str, filter: &str) -> bool {
     if filter.is_empty() {

@@ -91,7 +91,7 @@ pub fn build_orchestrator(
     let mut agent = crate::memory::apply_memory(agent, AgentKind::Main, memory);
     // Unlike the interactive binary (which schedules distillation on
     // detached tasks so the UI never waits), headless runs are fine blocking
-    // a turn on the distill model call — attach the in-turn procedure.
+    // a turn on the distill model call - attach the in-turn procedure.
     if let Some(wiring) = memory {
         if wiring.auto_distill {
             agent = agent.with_capabilities(sweet_agent::memory_distiller_capabilities(
@@ -109,9 +109,9 @@ pub fn build_orchestrator(
 /// snapshot of the orchestrator's transcript, runs a single turn with
 /// `user_input`, and returns the child's final assistant message content for
 /// the orchestrator to consume as a tool result. `TurnResult::Handoff` from a
-/// child is surfaced as a `ToolError::Execution` — handoffs are an
+/// child is surfaced as a `ToolError::Execution` - handoffs are an
 /// interactive-mode concept with no meaning in headless runs.
-/// `extra_tools` and `reminders` augment the child agent after construction —
+/// `extra_tools` and `reminders` augment the child agent after construction -
 /// the implement worker passes the `write_todos` tool and the todo reminder so
 /// the workflow state anchors its Main agent; plan/review pass none.
 pub(crate) async fn run_worker_turn(
@@ -167,17 +167,17 @@ pub(crate) async fn run_worker_turn(
 /// leaking tool-call references the child can't satisfy.
 ///
 /// The orchestrator's transcript contains assistant messages with `tool_calls`
-/// for `plan`/`implement`/`review` and paired `Role::Tool` results — tools the
+/// for `plan`/`implement`/`review` and paired `Role::Tool` results - tools the
 /// child agent does not have registered. Passing them through raw confuses
 /// schema-strict providers (OpenAI tool_choice validation, Anthropic
 /// tool_use_id checks).
 ///
 /// Replacement strategy:
-/// - `Role::Tool` (worker report) → synthetic assistant message tagged with
+/// - `Role::Tool` (worker report) -> synthetic assistant message tagged with
 ///   the originating tool name, so the child still sees prior worker reports.
-/// - Assistant carriers with `tool_calls` → keep any text content, drop the
+/// - Assistant carriers with `tool_calls` -> keep any text content, drop the
 ///   tool_calls themselves. Pure carriers (empty content) are skipped.
-/// - Other messages → pass through with `tool_calls`/`tool_call_id` cleared.
+/// - Other messages -> pass through with `tool_calls`/`tool_call_id` cleared.
 ///
 /// Per-message metadata (`token_count`, `context_tokens`, `compacted`) is
 /// zeroed because those values belong to the orchestrator's API calls, not

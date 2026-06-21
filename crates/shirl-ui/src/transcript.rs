@@ -230,7 +230,7 @@ fn footer_hint(scroll_offset: usize, visible_count: usize, total: usize) -> Stri
     let last_visible = scroll_offset + visible_count;
     let pct = (last_visible * 100) / total;
     format!(
-        "Line {}–{} of {} ({}%) · ↑↓jk PgUp/PgDn scroll · q/Esc/Ctrl+O to close",
+        "Line {}-{} of {} ({}%) · ↑↓jk PgUp/PgDn scroll · q/Esc/Ctrl+O to close",
         scroll_offset + 1,
         last_visible,
         total,

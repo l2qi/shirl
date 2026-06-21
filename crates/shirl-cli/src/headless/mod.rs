@@ -121,7 +121,7 @@ pub async fn run_headless(
 
     let auth = AuthStore::load(&auth_path)?;
 
-    // Load config — fail if incomplete (headless can't launch the picker).
+    // Load config - fail if incomplete (headless can't launch the picker).
     let config = match ShirlConfig::load(&config_path)? {
         Some(c) if c.is_complete() => c,
         _ => {
@@ -148,7 +148,7 @@ pub async fn run_headless(
     // Headless workers all share the orchestrator's model via
     // `SubagentContext::parent_model`, so only the Main slot needs loading.
     // (Per-agent models for headless would require subagent handlers to
-    // consult the store — separate change.)
+    // consult the store - separate change.)
     let mut store = ModelStore::new();
     model::load_agent_model(
         &mut store,

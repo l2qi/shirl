@@ -84,7 +84,7 @@ impl ToolHandler for EditFileHandler {
             if edit.old_text.is_empty() {
                 return Err(ToolError::Execution(
                     format!(
-                        "edit {}: old_text must not be empty — provide the exact text to replace",
+                        "edit {}: old_text must not be empty - provide the exact text to replace",
                         i + 1
                     )
                     .into(),
@@ -99,7 +99,7 @@ impl ToolHandler for EditFileHandler {
             if count > 1 && !replace_all {
                 return Err(ToolError::Execution(
                     format!(
-                        "edit {}: old_text found {count} times in {} — expected exactly one match. Use replace_all to replace all occurrences.",
+                        "edit {}: old_text found {count} times in {} - expected exactly one match. Use replace_all to replace all occurrences.",
                         i + 1,
                         args.path
                     )
@@ -115,7 +115,7 @@ impl ToolHandler for EditFileHandler {
 
         if args.dry_run {
             let diff = unified_diff(&content, &result, &args.path);
-            return Ok(format!("Dry run — no changes written.\n{diff}"));
+            return Ok(format!("Dry run - no changes written.\n{diff}"));
         }
 
         self.fs
@@ -139,7 +139,7 @@ impl ToolHandler for EditFileHandler {
 const DIFF_LINE_CAP: usize = 200;
 
 /// Maximum distance (in lines) to search forward for a resynchronization
-/// point. Caps the O(old × new) search per hunk to O(MAX_SYNC_WINDOW²),
+/// point. Caps the O(old x new) search per hunk to O(MAX_SYNC_WINDOW^2),
 /// preventing stalls when diffing large files with extensive changes.
 const MAX_SYNC_WINDOW: usize = 100;
 

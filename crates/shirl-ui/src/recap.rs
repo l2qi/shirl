@@ -12,7 +12,7 @@ pub(crate) const RESUME_LINES_PER_MESSAGE: usize = 3;
 
 /// One message prepared for the resumed-session recap.
 pub(crate) struct RecapEntry {
-    /// `User` or `Assistant` — the recap skips every other role.
+    /// `User` or `Assistant` - the recap skips every other role.
     pub role: Role,
     /// The first [`RESUME_LINES_PER_MESSAGE`] lines of the message content.
     pub lines: Vec<String>,

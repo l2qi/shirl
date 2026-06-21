@@ -8,14 +8,14 @@ use std::time::Duration;
 
 use ratatui::style::Color;
 
-/// Full breath cycle of the activity `⏺` (dim → bright → dim), in milliseconds.
+/// Full breath cycle of the activity `⏺` (dim -> bright -> dim), in milliseconds.
 /// ~2.5 s reads as a calm "ThinkPad suspend LED" breath; not too eager.
 pub(crate) const BREATH_PERIOD_MS: u128 = 2500;
 
 /// Shared accent color for activity indicators.
 pub(crate) const ACCENT: Color = Color::Rgb(217, 119, 87);
 
-/// One tool call currently in flight — held in the redrawable viewport so its
+/// One tool call currently in flight - held in the redrawable viewport so its
 /// `⏺` can pulse. Removed and flushed to scrollback when its result arrives.
 #[derive(Clone, Debug)]
 pub(crate) struct ActiveTool {
@@ -62,7 +62,7 @@ pub(crate) fn format_elapsed(d: Duration) -> String {
 /// (no hard step at the cycle boundary).
 pub(crate) fn breath_phase(elapsed: Duration) -> f32 {
     let t = (elapsed.as_millis() % BREATH_PERIOD_MS) as f32 / BREATH_PERIOD_MS as f32;
-    // (1 - cos(2π·t)) / 2 — 0 at t=0, 1 at t=0.5, 0 at t=1.
+    // (1 - cos(2*pi*t)) / 2 - 0 at t=0, 1 at t=0.5, 0 at t=1.
     (1.0 - (t * std::f32::consts::TAU).cos()) * 0.5
 }
 
@@ -78,20 +78,20 @@ pub(crate) fn breath_color(elapsed: Duration) -> Color {
 
 pub(crate) fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
     let f = a as f32 + (b as f32 - a as f32) * t;
-    // Round (not truncate) so that f32 `cos(π)` precision doesn't land the
+    // Round (not truncate) so that f32 `cos(pi)` precision doesn't land the
     // peak at 254 instead of 255.
     f.round().clamp(0.0, 255.0) as u8
 }
 
-/// Whimsical activity words for the working indicator — Shirl's answer to
+/// Whimsical activity words for the working indicator - Shirl's answer to
 /// Claude Code's spinner verbs. Cute and a little sparkly, with `Shirling` as
 /// the self-referential wink (Claude has `Clauding`). Static and curated: the
 /// indicator just picks one, never the model.
 ///
 /// Each entry is `(present participle, simple past)`. The live indicator shows
-/// the present (`Sparkling…`); the end-of-turn summary reuses the same word in
+/// the present (`Sparkling...`); the end-of-turn summary reuses the same word in
 /// past tense (`Sparkled for 3s.`). Both forms are stored rather than derived
-/// because English past tense is irregular (`Weaving` → `Wove`).
+/// because English past tense is irregular (`Weaving` -> `Wove`).
 const SPINNER_WORDS: &[(&str, &str)] = &[
     ("Sparkling", "Sparkled"),
     ("Twirling", "Twirled"),
@@ -132,7 +132,7 @@ pub(crate) fn spinner_word(seed: u64) -> &'static str {
     SPINNER_WORDS[(seed % SPINNER_WORDS.len() as u64) as usize].0
 }
 
-/// The simple-past form of the same word [`spinner_word`] picked for `seed` —
+/// The simple-past form of the same word [`spinner_word`] picked for `seed` -
 /// used for the end-of-turn summary so it matches the word shown while working.
 pub(crate) fn spinner_word_past(seed: u64) -> &'static str {
     SPINNER_WORDS[(seed % SPINNER_WORDS.len() as u64) as usize].1
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn active_tools_render_count_fits_or_truncates() {
-        // No tools or no room → nothing.
+        // No tools or no room -> nothing.
         assert_eq!(active_tools_render_count(0, 4), 0);
         assert_eq!(active_tools_render_count(3, 0), 0);
         // Fits exactly: render all.
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn spinner_word_past_matches_present_for_same_seed() {
         // The summary word must be the past tense of the very word shown while
-        // working — both keyed by the same seed.
+        // working - both keyed by the same seed.
         for seed in 0..SPINNER_WORDS.len() as u64 {
             let present = spinner_word(seed);
             let past = spinner_word_past(seed);

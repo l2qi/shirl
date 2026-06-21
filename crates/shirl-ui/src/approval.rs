@@ -3,7 +3,7 @@
 
 //! Inline approval rendering for the permission system.
 //!
-//! Renders directly into the viewport's input-area chunk — no popup, no
+//! Renders directly into the viewport's input-area chunk - no popup, no
 //! alternate screen. Two rows: a summary line and a key-hint line.
 
 use ratatui::layout::Rect;
@@ -17,7 +17,7 @@ use sweet_core::permission::{approval_scope, ToolRisk};
 pub struct ApprovalRenderState {
     pub tool_name: String,
     pub risk: ToolRisk,
-    /// The call's scope — bash command, file path, or serialized args — the
+    /// The call's scope - bash command, file path, or serialized args - the
     /// same value used as the session-approval key, so the prompt shows
     /// exactly what an "Always" grant will cover.
     pub preview: String,
@@ -57,7 +57,7 @@ pub fn render_approval_inline(f: &mut ratatui::Frame, state: &ApprovalRenderStat
     let (risk_text, risk_color) = risk_label(state.risk);
 
     // Truncate preview to fit the available width after the tool/risk prefix.
-    // Prefix: "⚠ tool_name · risk_label  " ≈ tool_name.len() + risk_text.len() + 7
+    // Prefix: "⚠ tool_name · risk_label  " ~ tool_name.len() + risk_text.len() + 7
     let prefix_overhead = state.tool_name.chars().count() + risk_text.chars().count() + 7;
     let available = (area.width as usize).saturating_sub(prefix_overhead);
     let preview = truncate_preview(&state.preview, available);

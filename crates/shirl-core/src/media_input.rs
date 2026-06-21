@@ -22,12 +22,12 @@ use sweet_core::message::ContentBlock;
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp"];
 
 /// Non-image file extensions we recognise for binary passthrough.
-/// These are sent as `ContentBlock::File` — the provider API handles
+/// These are sent as `ContentBlock::File` - the provider API handles
 /// parsing natively (e.g. PDF rendering).
 ///
 /// Only file types that providers explicitly accept as document inputs are
 /// listed here. Text and source-code files (.rs, .py, .md, etc.) are left as
-/// text tokens so the model can read/edit them via tool calls — embedding them
+/// text tokens so the model can read/edit them via tool calls - embedding them
 /// as binary would waste tokens, break edit workflows, and be rejected by most
 /// provider APIs.
 const FILE_EXTENSIONS: &[(&str, &str)] = &[("pdf", "application/pdf")];
@@ -81,8 +81,8 @@ pub struct Resolved {
 /// backslash escaping.
 ///
 /// After `@`, if the next character is `"`, reads until the matching
-/// unescaped `"`, processing standard escape sequences (`\"` → `"`,
-/// `\\` → `\`). Returns `(path, after)` where `path` is the unescaped
+/// unescaped `"`, processing standard escape sequences (`\"` -> `"`,
+/// `\\` -> `\`). Returns `(path, after)` where `path` is the unescaped
 /// content between the quotes and `after` is everything after the
 /// closing quote.
 ///
@@ -104,7 +104,7 @@ fn extract_quoted_token(remaining: &str) -> Option<(String, &str)> {
                 Some((_, '"')) => path.push('"'),
                 Some((_, '\\')) => path.push('\\'),
                 Some((_, other)) => {
-                    // Unknown escape — keep both characters as-is
+                    // Unknown escape - keep both characters as-is
                     // so `@"foo\bar.png"` works naturally.
                     path.push('\\');
                     path.push(other);
@@ -119,12 +119,12 @@ fn extract_quoted_token(remaining: &str) -> Option<(String, &str)> {
             _ => path.push(ch),
         }
     }
-    // Ran out of input without a closing quote — unterminated.
+    // Ran out of input without a closing quote - unterminated.
     None
 }
 
 /// Re-emit a parsed `@token` back to the text buffer, preserving the
-/// `@"..."` quoted form (with `"` → `\"` and `\` → `\\` re-escaped) when
+/// `@"..."` quoted form (with `"` -> `\"` and `\` -> `\\` re-escaped) when
 /// the original token was quoted. Used on miss paths so the user's input
 /// round-trips verbatim if no media is embedded.
 fn push_token_text(buf: &mut String, token: &str, quoted: bool) {
@@ -175,7 +175,7 @@ pub fn resolve_media(input: &str, cwd: &Path) -> std::io::Result<Resolved> {
 
         // Try quoted path first, then fall back to whitespace-delimited.
         // For unquoted tokens we also peel sentence punctuation (`,`, `.`,
-        // `?`, …) off the end so `@a.png,` resolves the same as `@a.png`.
+        // `?`, ...) off the end so `@a.png,` resolves the same as `@a.png`.
         // The peeled tail is preserved in `trailing` and re-emitted as text
         // immediately after the media (or path) so the sentence reads the
         // same way it was typed.
@@ -194,7 +194,7 @@ pub fn resolve_media(input: &str, cwd: &Path) -> std::io::Result<Resolved> {
 
         if token.is_empty() {
             // Lone '@' at end of string or before whitespace (possibly
-            // followed by punctuation we stripped — keep that as text too).
+            // followed by punctuation we stripped - keep that as text too).
             // A literal `@""` round-trips to itself via push_token_text.
             push_token_text(&mut text_buf, &token, quoted);
             text_buf.push_str(&trailing);
@@ -215,7 +215,7 @@ pub fn resolve_media(input: &str, cwd: &Path) -> std::io::Result<Resolved> {
                     let size = std::fs::metadata(&full_path).map(|m| m.len()).unwrap_or(0);
                     if size > MAX_IMAGE_BYTES {
                         warnings.push(format!(
-                            "⚠ Image {} is {:.1} MB (cap is {:.0} MB) — kept as text",
+                            "⚠ Image {} is {:.1} MB (cap is {:.0} MB) - kept as text",
                             token,
                             size as f64 / 1_048_576.0,
                             MAX_IMAGE_BYTES as f64 / 1_048_576.0,
@@ -245,7 +245,7 @@ pub fn resolve_media(input: &str, cwd: &Path) -> std::io::Result<Resolved> {
                     let size = std::fs::metadata(&full_path).map(|m| m.len()).unwrap_or(0);
                     if size > MAX_FILE_BYTES {
                         warnings.push(format!(
-                            "⚠ File {} is {:.1} MB (cap is {:.0} MB) — kept as text",
+                            "⚠ File {} is {:.1} MB (cap is {:.0} MB) - kept as text",
                             token,
                             size as f64 / 1_048_576.0,
                             MAX_FILE_BYTES as f64 / 1_048_576.0,
@@ -278,7 +278,7 @@ pub fn resolve_media(input: &str, cwd: &Path) -> std::io::Result<Resolved> {
             }
         }
 
-        // Not a recognised media type or file doesn't exist — keep as text.
+        // Not a recognised media type or file doesn't exist - keep as text.
         // Preserve the quoted form so `@"missing file.png"` round-trips
         // verbatim.
         push_token_text(&mut text_buf, &token, quoted);
@@ -695,7 +695,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // `\\` is unescaped to a single `\` inside the parser. The path
         // `path\file.png` won't match a real file on Unix, so the token
-        // falls back to text — and the quoted form is preserved verbatim.
+        // falls back to text - and the quoted form is preserved verbatim.
         let blocks = resolve(r#"@"path\\file.png""#, dir.path());
         assert_eq!(blocks.len(), 1);
         assert_eq!(blocks[0].as_text().unwrap(), r#"@"path\\file.png""#);
@@ -707,7 +707,7 @@ mod tests {
         let img_path = dir.path().join("photo.png");
         fs::write(&img_path, [4u8; 10]).unwrap();
 
-        // Opening quote but no closing quote — falls back to whitespace
+        // Opening quote but no closing quote - falls back to whitespace
         // delimiter, so `@"photo.png` is the token (doesn't match the file
         // because of the leading quote).
         let blocks = resolve(r#"@"photo.png"#, dir.path());

@@ -17,7 +17,7 @@ use sweet_agent::Agent;
 use sweet_core::{Model, Role, Session, SessionId};
 
 /// Load the workflow tracker for a session, or `None` if the home directory
-/// can't be resolved (workflow features then degrade off — unreachable in
+/// can't be resolved (workflow features then degrade off - unreachable in
 /// practice, since the session itself lives under the same home directory).
 pub(crate) fn load_tracker(session_id: &SessionId) -> Option<PlanTracker> {
     shirl_core::session_dir(session_id)
@@ -50,7 +50,7 @@ pub(crate) fn headless_tracking(tracker: PlanTracker) -> Tracking {
     }
 }
 
-/// The most recent non-empty assistant message text in `session` — the report a
+/// The most recent non-empty assistant message text in `session` - the report a
 /// Plan/Review agent produced before handing off to Main.
 pub(crate) fn last_assistant_text(session: &dyn Session) -> Option<String> {
     session
@@ -61,7 +61,7 @@ pub(crate) fn last_assistant_text(session: &dyn Session) -> Option<String> {
         .map(|m| m.text_content())
 }
 
-/// A resolved Plan/Review→Main handover: the report text to persist and the
+/// A resolved Plan/Review->Main handover: the report text to persist and the
 /// user instruction (if any) that selects which of its items to act on.
 pub(crate) struct Handover {
     pub report: String,
@@ -73,8 +73,8 @@ pub(crate) struct Handover {
 ///
 /// When the outgoing agent left assistant text, that text *is* the report and
 /// `step_with` is a separate selection instruction (`/fix only item 3`) that
-/// must be preserved. When there is no assistant text — a model-driven handoff
-/// whose payload itself is the report — `step_with` becomes the report and the
+/// must be preserved. When there is no assistant text - a model-driven handoff
+/// whose payload itself is the report - `step_with` becomes the report and the
 /// model chooses the items. Returns `None` only when there is nothing to persist
 /// (no assistant text and no `step_with`).
 pub(crate) fn resolve_handover(
@@ -96,8 +96,8 @@ pub(crate) fn resolve_handover(
 /// Directive injected into Main once a plan/review is persisted.
 ///
 /// `instruction` is the user's own request that triggered the handover (e.g.
-/// `/fix only item 3`, `/approve`). When present it is authoritative — the
-/// model must record exactly the items it names, not the whole report — so it
+/// `/fix only item 3`, `/approve`). When present it is authoritative - the
+/// model must record exactly the items it names, not the whole report - so it
 /// leads, and the file pointer follows. When absent (a model-driven handoff
 /// whose payload *was* the report), the model picks the items itself.
 pub(crate) fn report_directive(kind: AgentKind, path: &Path, instruction: Option<&str>) -> String {
@@ -110,14 +110,14 @@ pub(crate) fn report_directive(kind: AgentKind, path: &Path, instruction: Option
         Some(instruction) => format!(
             "{instruction}\n\n\
              The full {what} is saved to {}. The request above is authoritative about WHICH \
-             items to act on — call write_todos with exactly those (all of them if it asks for \
+             items to act on - call write_todos with exactly those (all of them if it asks for \
              all, only the named ones if it is selective), then work through them, re-reading \
              the file with ReadFile whenever you need full detail.",
             path.display()
         ),
         None => format!(
             "The {what} has been saved to {}. Decide which items to act on, call write_todos with \
-             that list, then work through it — re-read the file with ReadFile whenever you need \
+             that list, then work through it - re-read the file with ReadFile whenever you need \
              full detail.",
             path.display()
         ),
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn directive_with_instruction_makes_the_selection_authoritative() {
-        // Regression: `/fix only item 3` must not be discarded — the model
+        // Regression: `/fix only item 3` must not be discarded - the model
         // should record exactly that item, not the whole review.
         let directive = report_directive(
             AgentKind::Review,

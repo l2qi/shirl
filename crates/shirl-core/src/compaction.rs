@@ -45,7 +45,7 @@ pub fn install_auto_compaction<M: Model>(agent: Agent<M>, config: CompactionConf
 ///
 /// If the boundary lands between an assistant message carrying `tool_calls`
 /// and its `Role::Tool` result, the preserved tail would start with a tool
-/// result whose carrier was summarized away — a dangling reference that
+/// result whose carrier was summarized away - a dangling reference that
 /// strict providers reject. This function nudges `preserve_recent` upward
 /// until the boundary no longer splits any such pair.
 pub(crate) fn adjusted_preserve_count(items: &[MemoryItem], preserve_recent: usize) -> usize {
@@ -65,10 +65,10 @@ pub(crate) fn adjusted_preserve_count(items: &[MemoryItem], preserve_recent: usi
             (Some(MemoryItem::Message(before)), Some(MemoryItem::Message(after))) => {
                 // Case 1: the last summarized item is an assistant with
                 // tool_calls, and the first preserved item is a tool result
-                // for those calls → split.
+                // for those calls -> split.
                 (before.role == Role::Assistant && !before.tool_calls.is_empty())
                 // Case 2: the first preserved item is a tool result whose
-                // carrier is in the summarized range → split.
+                // carrier is in the summarized range -> split.
                 || after.role == Role::Tool
             }
             _ => false,
@@ -135,8 +135,8 @@ mod boundary_tests {
             MemoryItem::Message(Message::tool_result("c1", "result")),
             MemoryItem::Message(Message::user("keep")),
         ];
-        // preserve_recent=2 → boundary=2, items[1] is assistant with tool_calls
-        // (last summarized), items[2] is tool_result (first preserved) → split.
+        // preserve_recent=2 -> boundary=2, items[1] is assistant with tool_calls
+        // (last summarized), items[2] is tool_result (first preserved) -> split.
         // Should nudge to preserve=3.
         assert_eq!(adjusted_preserve_count(&items, 2), 3);
     }

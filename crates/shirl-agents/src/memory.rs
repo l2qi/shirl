@@ -7,14 +7,14 @@
 //! distiller) and passes it to every agent build; the per-kind policy lives
 //! here:
 //!
-//! - **Main** — full memory tools and per-turn recall. Distillation is *not*
+//! - **Main** - full memory tools and per-turn recall. Distillation is *not*
 //!   attached as an `AfterTurn` capability: that would run a model call
 //!   before the turn returns, so the interactive binary schedules
 //!   distillation itself on detached tasks (claim-then-spawn against the
 //!   shared [`MemoryDistiller`]).
-//! - **Plan** — `memory_search` plus recall: planning benefits from past
+//! - **Plan** - `memory_search` plus recall: planning benefits from past
 //!   decisions but stays read-only, so no save/update/delete.
-//! - **Review** — recall only.
+//! - **Review** - recall only.
 //!
 //! The headless orchestrator gets the Main policy plus the in-turn
 //! distillation procedure (non-interactive, so blocking is fine there): its
@@ -42,8 +42,8 @@ pub struct MemoryWiring {
     /// Maximum memories injected into the system prompt per turn.
     pub recall_limit: usize,
     /// Distillation engine, `Arc`-shared so the watermark survives agent
-    /// rebuilds (mode switches) and every scheduling path — background
-    /// passes, explicit `/memory distill` — claims from the same window.
+    /// rebuilds (mode switches) and every scheduling path - background
+    /// passes, explicit `/memory distill` - claims from the same window.
     pub distiller: Arc<MemoryDistiller>,
     /// Whether the *automatic* passes (turn end, `/new`) run. Explicit
     /// `/memory distill` works regardless.

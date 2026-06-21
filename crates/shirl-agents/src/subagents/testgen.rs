@@ -32,7 +32,7 @@ const TESTGEN_PROMPT: &str =
     Guidelines:\n\
     - Follow the project's existing test conventions (test framework, naming, organization)\n\
     - Include descriptive test names that explain the expected behavior\n\
-    - Return ONLY the test code as plain text — do not write any files\n\
+    - Return ONLY the test code as plain text - do not write any files\n\
     - If the target has existing tests, suggest additions rather than duplicates";
 
 pub fn testgen_spec(sandbox: Arc<dyn Sandbox>) -> SubagentSpec {

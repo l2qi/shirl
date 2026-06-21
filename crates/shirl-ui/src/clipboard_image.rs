@@ -8,7 +8,7 @@
 //! Two cases handled:
 //!
 //! - **Raw image data** on the clipboard (e.g. macOS screenshot to clipboard
-//!   via `Cmd+Ctrl+Shift+4`, or right-click → Copy Image in a browser).
+//!   via `Cmd+Ctrl+Shift+4`, or right-click -> Copy Image in a browser).
 //!   Read via `arboard::Clipboard::get_image()` as an RGBA buffer, then
 //!   re-encoded to PNG.
 //! - **A file list** of one or more image paths (e.g. Cmd+C on an image file
@@ -38,7 +38,7 @@ const SUBDIR_PARTS: &[&str] = &[".shirl", "cache", "clipboard"];
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardImageError {
     /// The clipboard does not contain any image data or image file.
-    /// Distinct from a hard error — used to render "no image in clipboard".
+    /// Distinct from a hard error - used to render "no image in clipboard".
     #[error("no image in clipboard")]
     NoImage,
     /// No clipboard backend is available (e.g. headless Linux without X11
@@ -47,7 +47,7 @@ pub enum ClipboardImageError {
     #[error("no clipboard backend available")]
     NoClipboard,
     /// Clipboard backend open / connection failure that is neither
-    /// "platform unsupported" nor a decode error — typically an X11/Wayland
+    /// "platform unsupported" nor a decode error - typically an X11/Wayland
     /// connection problem reported by `arboard::Clipboard::new()`.
     #[error("clipboard backend error: {0}")]
     Backend(String),
@@ -69,7 +69,7 @@ pub enum ClipboardImageError {
 /// Read the system clipboard. If it carries image data or a file list whose
 /// first entry is a recognised image file, return PNG-encoded bytes.
 ///
-/// Re-encodes to PNG even when the source is already PNG — a uniform output
+/// Re-encodes to PNG even when the source is already PNG - a uniform output
 /// MIME type simplifies the rest of the pipeline and the cost is bounded
 /// (one decode + one encode of a screenshot-sized buffer).
 #[cfg(feature = "clipboard-image")]
@@ -79,7 +79,7 @@ pub fn read_clipboard_png() -> Result<Vec<u8>, ClipboardImageError> {
         other => ClipboardImageError::Backend(other.to_string()),
     })?;
 
-    // Try direct image data first — the common case for screenshots and
+    // Try direct image data first - the common case for screenshots and
     // browser "Copy Image". Translate "not available" into the NoImage branch
     // so we can try the file-list fallback before giving up.
     match clipboard.get_image() {
@@ -237,12 +237,12 @@ mod tests {
         assert!(!has_image_extension(Path::new("/tmp/source.rs")));
         assert!(!has_image_extension(Path::new("/tmp/dir")));
         assert!(!has_image_extension(Path::new("/tmp/.hidden")));
-        // SVG isn't in the allow list — providers don't accept it.
+        // SVG isn't in the allow list - providers don't accept it.
         assert!(!has_image_extension(Path::new("/tmp/vector.svg")));
     }
 
     /// Round-trip a tiny RGBA buffer through the encode path. Validates we
-    /// produce valid PNG bytes that decode back to the same pixels — covers
+    /// produce valid PNG bytes that decode back to the same pixels - covers
     /// the wire-format contract the real paste path depends on.
     #[cfg(feature = "clipboard-image")]
     #[test]

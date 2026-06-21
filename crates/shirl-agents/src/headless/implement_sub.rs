@@ -14,7 +14,7 @@ use crate::headless::{run_worker_turn, WorkerDeps};
 #[derive(Deserialize, JsonSchema)]
 struct ImplementInput {
     /// What to implement. The worker sees a snapshot of the orchestrator's
-    /// conversation — including every prior worker's final report — so it has
+    /// conversation - including every prior worker's final report - so it has
     /// the plan in context. Use this parameter for new instructions or
     /// clarifications, not to re-state the plan verbatim.
     instructions: String,

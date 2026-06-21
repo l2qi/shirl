@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Ryuichi Intellectual Property LLC and the Shirl project contributors
 // SPDX-License-Identifier: Apache-2.0
 
-//! Approval dialog loop — runs in the main event loop while the agent task
+//! Approval dialog loop - runs in the main event loop while the agent task
 //! awaits the user's decision.
 
 use std::path::Path;
@@ -38,7 +38,7 @@ pub async fn run_approval_dialog(
     risk: sweet_core::ToolRisk,
     response_tx: tokio::sync::oneshot::Sender<ApprovalDecision>,
 ) -> Result<ApprovalOutcome> {
-    // The agent task that raised this request may already be gone — e.g. the
+    // The agent task that raised this request may already be gone - e.g. the
     // turn was cancelled while the request sat queued. Don't show a stale
     // prompt for a dead call.
     if response_tx.is_closed() {
@@ -52,7 +52,7 @@ pub async fn run_approval_dialog(
     // Show the approval prompt inline in the viewport.
     {
         let mut io = shared_io.lock().await;
-        // Preview rendering is cosmetic — errors are swallowed internally.
+        // Preview rendering is cosmetic - errors are swallowed internally.
         io.flush_approval_preview(&preview);
         // Rendering errors are non-fatal: the approval dialog's hard
         // requirement is receiving the user's keystroke. A viewport redraw
@@ -77,7 +77,7 @@ pub async fn run_approval_dialog(
                 // Esc / Ctrl+C / EOF cancel the whole turn, not just this call.
                 Some(Command::Cancel | Command::Exit) | None => break None,
                 Some(Command::Submit(line)) => {
-                    // A line submitted just before the prompt opened — stash it
+                    // A line submitted just before the prompt opened - stash it
                     // so the main loop processes it after the dialog rather
                     // than dropping it.
                     shared_io.lock().await.pending_command = Some(Command::Submit(line));
@@ -111,7 +111,7 @@ pub async fn run_approval_dialog(
     match decision {
         Some(decision) => {
             // Ignore error: if the receiver was dropped the agent task was
-            // cancelled — the caller handles that via the closed channel.
+            // cancelled - the caller handles that via the closed channel.
             let _ = response_tx.send(decision);
             Ok(ApprovalOutcome::Answered)
         }
@@ -220,7 +220,7 @@ async fn compute_write_preview(tool_name: &str, args: &serde_json::Value) -> App
     };
 
     if Path::new(&path).exists() {
-        // File already exists — show a diff.
+        // File already exists - show a diff.
         match tokio::fs::read_to_string(&path).await {
             Ok(old) => {
                 let diff = unified_diff(&old, &content, &path);
