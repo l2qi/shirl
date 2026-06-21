@@ -6,9 +6,9 @@
 //! One `~/.shirl/memory.db` holds every memory across all projects. Two
 //! scopes matter to shirl:
 //!
-//! - **User** (`MemoryScope::User("default")`) — personal preferences that
+//! - **User** (`MemoryScope::User("default")`) - personal preferences that
 //!   follow the user everywhere.
-//! - **Project** (`MemoryScope::Project(<canonical git root>)`) — facts about
+//! - **Project** (`MemoryScope::Project(<canonical git root>)`) - facts about
 //!   one codebase, keyed by the same git-root identity that AGENTS.md
 //!   discovery uses, so the scope is stable no matter which subdirectory
 //!   shirl is launched from.
@@ -24,11 +24,10 @@ use sweet_memory::SqliteMemory;
 
 use crate::discovery;
 
-/// Path to the shared memory database: `~/.shirl/memory.db`.
+/// Path to the shared memory database: `<config_home>/memory.db`
+/// (`~/.shirl/memory.db` by default).
 pub fn memory_db_path() -> Result<PathBuf> {
-    let home =
-        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-    Ok(home.join(".shirl").join("memory.db"))
+    Ok(crate::paths::config_home()?.join("memory.db"))
 }
 
 /// Open (or create) the shared memory store, optionally with an embedder for
@@ -55,7 +54,7 @@ pub fn user_scope() -> MemoryScope {
 }
 
 /// The project scope for `start`: the canonical path of the containing git
-/// root (or of `start` itself outside a repo) — the same identity AGENTS.md
+/// root (or of `start` itself outside a repo) - the same identity AGENTS.md
 /// discovery uses.
 pub fn project_scope(start: &Path) -> Result<MemoryScope> {
     let root = discovery::find_git_root(start).unwrap_or(start);

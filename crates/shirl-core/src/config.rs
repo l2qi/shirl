@@ -102,11 +102,10 @@ pub struct ModelExtension {
 }
 
 impl ShirlConfig {
-    /// Path to the default config file: `~/.shirl/config.toml`.
+    /// Path to the default config file: `<config_home>/config.toml`
+    /// (`~/.shirl/config.toml` by default).
     pub fn default_path() -> Result<PathBuf> {
-        let home =
-            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-        Ok(home.join(".shirl").join("config.toml"))
+        Ok(crate::paths::config_home()?.join("config.toml"))
     }
 
     /// Load config from `path`.  Returns `Ok(None)` when the file does not

@@ -123,9 +123,12 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     let mut auth = shirl_core::AuthStore::load(&auth_path)?;
 
     let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(16);
+    let brand = "shirl";
     let io = Arc::new(Mutex::new(ReplIo::new(
+        brand.to_string(),
         "not configured".to_string(),
         None,
+        shirl_ui::default_history_path(brand),
         cmd_tx.clone(),
     )?));
     let (shared_io, mut approval_rx) = SharedIo::new(io.clone());
