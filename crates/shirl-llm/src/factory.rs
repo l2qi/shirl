@@ -36,6 +36,23 @@ pub struct ReasoningSettings {
     pub budget_tokens: Option<u32>,
 }
 
+/// Whether reasoning can be explicitly turned *off* for a `protocol` model with
+/// these dialect `options`. Anthropic/Gemini always can (an explicit disable
+/// toggle); an OpenAI/Cerebras model only if it advertises a toggle or an effort
+/// level of `none`. Otherwise the model reasons by default with no off-switch.
+///
+/// This is the same predicate `plan_reasoning` uses for its disable path, so
+/// callers (e.g. shirl's `/reasoning off`) can detect a no-op disable without
+/// re-deriving - and drifting from - the rule.
+pub fn can_disable_reasoning(protocol: Protocol, options: &[ReasoningOption]) -> bool {
+    let has_toggle = options.iter().any(|o| matches!(o, ReasoningOption::Toggle));
+    let effort_allows_none = options.iter().any(
+        |o| matches!(o, ReasoningOption::Effort { values } if values.iter().any(|v| v == "none")),
+    );
+    let explicit_enable = matches!(protocol, Protocol::Anthropic | Protocol::Gemini);
+    has_toggle || explicit_enable || effort_allows_none
+}
+
 /// Translate resolved [`ReasoningSettings`] into the dialect-correct
 /// [`ReasoningConfig`] for `protocol`, or `None` to send no reasoning parameter.
 ///
@@ -57,9 +74,6 @@ fn plan_reasoning(protocol: Protocol, settings: &ReasoningSettings) -> Option<Re
         ReasoningOption::BudgetTokens { min, .. } => Some(min.unwrap_or(DEFAULT_THINKING_BUDGET)),
         _ => None,
     });
-    let effort_allows_none = settings.options.iter().any(
-        |o| matches!(o, ReasoningOption::Effort { values } if values.iter().any(|v| v == "none")),
-    );
 
     // Explicit user overrides win when the model supports that dialect.
     if let Some(effort) = &settings.effort {
@@ -80,13 +94,17 @@ fn plan_reasoning(protocol: Protocol, settings: &ReasoningSettings) -> Option<Re
     let explicit_enable = matches!(protocol, Protocol::Anthropic | Protocol::Gemini);
 
     if !settings.enabled {
-        if has_toggle || explicit_enable {
-            return Some(ReasoningConfig::Toggle(false));
+        if !can_disable_reasoning(protocol, &settings.options) {
+            // Reasons by default with no off-switch: send nothing.
+            return None;
         }
-        if effort_allows_none {
-            return Some(ReasoningConfig::Effort("none".to_string()));
-        }
-        return None;
+        // Toggle / explicit-enable providers disable via the toggle; an
+        // effort-only model with a `none` level disables by selecting it.
+        return Some(if has_toggle || explicit_enable {
+            ReasoningConfig::Toggle(false)
+        } else {
+            ReasoningConfig::Effort("none".to_string())
+        });
     }
 
     if has_toggle {
@@ -423,6 +441,35 @@ mod tests {
             plan_reasoning(Protocol::OpenAI, &toggle_settings(false)),
             Some(ReasoningConfig::Toggle(false))
         );
+    }
+
+    #[test]
+    fn can_disable_reasoning_by_protocol_and_dialect() {
+        let effort = |vals: &[&str]| ReasoningOption::Effort {
+            values: vals.iter().map(|s| s.to_string()).collect(),
+        };
+        // Anthropic/Gemini always accept an explicit off, whatever the dialect.
+        assert!(can_disable_reasoning(Protocol::Anthropic, &[]));
+        assert!(can_disable_reasoning(
+            Protocol::Gemini,
+            &[effort(&["low", "high"])]
+        ));
+        // OpenAI/Cerebras can disable only with a toggle or an effort `none`.
+        assert!(can_disable_reasoning(
+            Protocol::OpenAI,
+            &[ReasoningOption::Toggle]
+        ));
+        assert!(can_disable_reasoning(
+            Protocol::Cerebras,
+            &[effort(&["none", "low", "high"])]
+        ));
+        // Effort-by-default with no `none` and no toggle: cannot be turned off.
+        assert!(!can_disable_reasoning(
+            Protocol::OpenAI,
+            &[effort(&["low", "high"])]
+        ));
+        // A reasoning model exposing no knob at all: cannot be turned off.
+        assert!(!can_disable_reasoning(Protocol::Cerebras, &[]));
     }
 
     #[test]

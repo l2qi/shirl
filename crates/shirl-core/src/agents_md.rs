@@ -84,8 +84,7 @@ fn format_prompt(path: &Path, content: &str) -> String {
 // ---------------------------------------------------------------------------
 
 fn load_user_level() -> Option<(PathBuf, String)> {
-    let home = dirs::home_dir()?;
-    let candidate = home.join(".shirl").join(FILE_NAME);
+    let candidate = crate::paths::config_home().ok()?.join(FILE_NAME);
     read_if_exists(&candidate)
 }
 

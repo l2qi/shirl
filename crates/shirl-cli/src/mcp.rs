@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use shirl_core::AuthStore;
 use tokio::sync::Mutex;
 
@@ -19,8 +19,7 @@ pub(crate) fn flatten_mcp_specs(providers: &[sweet_mcp::McpProvider]) -> Vec<swe
 }
 
 fn mcp_config_path() -> Result<std::path::PathBuf> {
-    let home = dirs::home_dir().context("cannot determine home directory")?;
-    Ok(home.join(".shirl").join("mcp.json"))
+    Ok(shirl_core::config_home()?.join("mcp.json"))
 }
 
 /// Per-server cap on the MCP connection handshake (transport + tool listing).

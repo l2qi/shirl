@@ -9,7 +9,7 @@
 //! Anthropic, Gemini) are retained. Models are filtered to those that support
 //! tool calling.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::time::{Duration, SystemTime};
 
 use anyhow::{Context, Result};
@@ -350,14 +350,11 @@ fn known_base_url(provider_id: &str) -> Option<&'static str> {
 }
 
 impl Catalog {
-    pub fn cache_path() -> Result<PathBuf> {
-        let home =
-            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-        Ok(home.join(".shirl").join("cache").join(CACHE_FILENAME))
-    }
-
-    pub async fn load(http: &reqwest::Client) -> Result<Self> {
-        let cache_path = Self::cache_path()?;
+    /// Load the catalog, using `cache_dir` (e.g. `~/.shirl/cache`) for the
+    /// on-disk cache. The caller owns the config-home layout; this crate stays
+    /// agnostic about where it lives.
+    pub async fn load(http: &reqwest::Client, cache_dir: &Path) -> Result<Self> {
+        let cache_path = cache_dir.join(CACHE_FILENAME);
 
         if let Ok(cached) = Self::load_from_cache(&cache_path) {
             // Ignore a cache written by an older shirl: its parsed shape (and

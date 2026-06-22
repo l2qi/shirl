@@ -134,7 +134,8 @@ pub async fn run_headless(
 
     // Catalog fetch failure is non-fatal.
     let http = reqwest::Client::new();
-    let catalog = match Catalog::load(&http).await {
+    let cache_dir = shirl_core::config_home()?.join("cache");
+    let catalog = match Catalog::load(&http, &cache_dir).await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Warning: could not load model catalog ({e}).");
@@ -203,10 +204,10 @@ pub async fn run_headless(
         match OsSandbox::new(
             std::env::current_dir().context("current directory does not exist")?,
             sandbox_policy,
-            // Let the agent read back plan/review files under ~/.shirl/sessions.
+            // Let the agent read back plan/review files under the sessions dir.
             crate::tracking::sandbox_read_roots(),
-            // Hide ~/.shirl (auth.toml holds API keys) from the sandbox.
-            vec![".shirl".to_string()],
+            // Hide the config home (auth.toml holds API keys) from the sandbox.
+            vec![shirl_core::config_dir_name().to_string()],
         ) {
             Ok(s) => Arc::new(s),
             Err(e) => {

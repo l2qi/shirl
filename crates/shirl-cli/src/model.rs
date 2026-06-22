@@ -185,6 +185,19 @@ fn lookup_max_output_tokens(catalog: &Catalog, provider_id: &str, model_id: &str
         .and_then(|m| m.max_output_tokens)
 }
 
+/// The wire protocol for a provider, whether a custom `[providers.*]` entry or a
+/// catalog-defined one. Used to give protocol-accurate `/reasoning` feedback.
+pub(crate) fn lookup_protocol(
+    catalog: &Catalog,
+    config: &ShirlConfig,
+    provider_id: &str,
+) -> Option<Protocol> {
+    if let Some(custom) = config.providers.get(provider_id) {
+        return parse_protocol(&custom.protocol).ok();
+    }
+    catalog.get_provider(provider_id).map(|p| p.protocol)
+}
+
 /// Reasoning dialects a catalog model advertises, for validating `/reasoning`
 /// input and showing capability hints. Empty when the model/provider is unknown.
 pub(crate) fn lookup_reasoning_options(

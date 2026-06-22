@@ -20,10 +20,22 @@ const DEFAULT_CONFIG_DIR_NAME: &str = ".shirl";
 static CONFIG_DIR_NAME: OnceLock<String> = OnceLock::new();
 
 /// Override the config directory name. Call once at process start, before any
-/// path is resolved. Idempotent: later calls (and the implicit default) are
-/// ignored, so the first writer wins.
+/// path is resolved. A leading dot is added if omitted, so both `myapp` and
+/// `.myapp` resolve to the same `~/.myapp` home (and a matching dotless brand) -
+/// downstream path consumers rely on the leading-dot form. Idempotent: later
+/// calls (and the implicit default) are ignored, so the first writer wins.
 pub fn set_config_dir_name(name: impl Into<String>) {
-    let _ = CONFIG_DIR_NAME.set(name.into());
+    let _ = CONFIG_DIR_NAME.set(with_leading_dot(&name.into()));
+}
+
+/// Ensure a config dir name carries the leading dot it is canonically stored
+/// with (`myapp` -> `.myapp`, `.myapp` -> `.myapp`).
+fn with_leading_dot(name: &str) -> String {
+    if name.starts_with('.') {
+        name.to_string()
+    } else {
+        format!(".{name}")
+    }
 }
 
 /// The configured directory name, e.g. `.shirl` (default) or `.myapp`.
@@ -64,5 +76,14 @@ mod tests {
         let home = dirs::home_dir().expect("home dir for test");
         assert_eq!(home_join(".myapp").unwrap(), home.join(".myapp"));
         assert_eq!(home_join(".shirl").unwrap(), home.join(".shirl"));
+    }
+
+    #[test]
+    fn with_leading_dot_normalizes_and_is_idempotent() {
+        // A fork passing a dotless name still lands under the leading-dot home,
+        // matching the dotless brand derived via `trim_start_matches('.')`.
+        assert_eq!(with_leading_dot("myapp"), ".myapp");
+        assert_eq!(with_leading_dot(".myapp"), ".myapp");
+        assert_eq!(with_leading_dot(".shirl"), ".shirl");
     }
 }

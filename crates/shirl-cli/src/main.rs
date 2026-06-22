@@ -110,10 +110,14 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     let resume_id = cli_args.resume.clone();
     let config_path = ShirlConfig::default_path()?;
     let auth_path = shirl_core::AuthStore::default_path()?;
+    // Display brand and on-disk dir name both derive from the one config-dir
+    // source of truth (`~/.shirl` by default), so a fork that calls
+    // `set_config_dir_name` gets a matching brand and matching paths.
+    let brand = shirl_core::config_dir_name().trim_start_matches('.');
 
     // Garbage-collect old clipboard pastes. Best-effort: any error here is
     // ignored so a broken or unreadable cache dir never blocks startup.
-    if let Some(dir) = shirl_ui::clipboard_image::default_cache_dir() {
+    if let Some(dir) = shirl_ui::clipboard_image::default_cache_dir(brand) {
         let _ = shirl_ui::clipboard_image::sweep_dir(
             &dir,
             std::time::Duration::from_secs(7 * 24 * 60 * 60),
@@ -123,7 +127,6 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     let mut auth = shirl_core::AuthStore::load(&auth_path)?;
 
     let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(16);
-    let brand = "shirl";
     let io = Arc::new(Mutex::new(ReplIo::new(
         brand.to_string(),
         "not configured".to_string(),
@@ -137,7 +140,8 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     // A catalog fetch failure with no cache is non-fatal: shirl still starts,
     // and custom providers defined in config.toml remain usable.
     let http = reqwest::Client::new();
-    let catalog = match Catalog::load(&http).await {
+    let cache_dir = shirl_core::config_home()?.join("cache");
+    let catalog = match Catalog::load(&http, &cache_dir).await {
         Ok(c) => c,
         Err(e) => {
             let mut io_guard = io.lock().await;
@@ -231,8 +235,8 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
             cli_args.sandbox_policy,
             // Let the agent read back plan/review files under ~/.shirl/sessions.
             tracking::sandbox_read_roots(),
-            // Hide ~/.shirl (auth.toml holds API keys) from the sandbox.
-            vec![".shirl".to_string()],
+            // Hide the config home (auth.toml holds API keys) from the sandbox.
+            vec![shirl_core::config_dir_name().to_string()],
         ) {
             Ok(s) => Arc::new(s),
             Err(e) => {

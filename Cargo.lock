@@ -2141,7 +2141,6 @@ version = "0.3.5"
 dependencies = [
  "anyhow",
  "crossterm",
- "dirs",
  "ignore",
  "reqwest",
  "serde_json",
@@ -2376,6 +2375,7 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 [[package]]
 name = "sweet-agent"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -2390,6 +2390,7 @@ dependencies = [
 [[package]]
 name = "sweet-core"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "async-trait",
  "base64",
@@ -2409,6 +2410,7 @@ dependencies = [
 [[package]]
 name = "sweet-llm"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "async-trait",
  "base64",
@@ -2424,6 +2426,7 @@ dependencies = [
 [[package]]
 name = "sweet-mcp"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "async-trait",
  "http",
@@ -2439,6 +2442,7 @@ dependencies = [
 [[package]]
 name = "sweet-memory"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "async-trait",
  "rusqlite",
@@ -2451,6 +2455,7 @@ dependencies = [
 [[package]]
 name = "sweet-sandbox"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "async-trait",
  "dirs",
@@ -2465,6 +2470,7 @@ dependencies = [
 [[package]]
 name = "sweet-session"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -2474,6 +2480,7 @@ dependencies = [
 [[package]]
 name = "sweet-tool-derive"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2483,6 +2490,7 @@ dependencies = [
 [[package]]
 name = "sweet-tools"
 version = "0.3.5"
+source = "git+https://github.com/sweet/sweet?tag=v0.3.5#6f60487ab38bc7e02f130ad5aada70400730666b"
 dependencies = [
  "chrono",
  "reqwest",

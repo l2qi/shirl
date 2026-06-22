@@ -394,11 +394,22 @@ fn parse_reasoning_arg(
     }
 
     if let Ok(budget) = arg.parse::<u32>() {
-        let supports_budget = options
-            .iter()
-            .any(|o| matches!(o, ReasoningOption::BudgetTokens { .. }));
-        if !supports_budget {
+        let bounds = options.iter().find_map(|o| match o {
+            ReasoningOption::BudgetTokens { min, max } => Some((*min, *max)),
+            _ => None,
+        });
+        let Some((min, max)) = bounds else {
             return Err("this model does not support a thinking budget".to_string());
+        };
+        if let Some(min) = min.filter(|m| budget < *m) {
+            return Err(format!(
+                "budget {budget} is below this model's minimum of {min}"
+            ));
+        }
+        if let Some(max) = max.filter(|m| budget > *m) {
+            return Err(format!(
+                "budget {budget} is above this model's maximum of {max}"
+            ));
         }
         return Ok(Some(ReasoningPref {
             budget_tokens: Some(budget),
@@ -438,13 +449,15 @@ async fn handle_reasoning_command(
     active_agent: AgentKind,
     model_handle: &mut Option<JoinHandle<sweet_core::Result<TurnResult>>>,
 ) -> Result<()> {
-    let (provider_id, model_id, current) = {
+    let (provider_id, model_id, current, protocol) = {
         let config = ctx.config.lock().await;
         let agent = active_agent.display_name();
+        let provider_id = config.provider_for(agent).to_string();
         (
-            config.provider_for(agent).to_string(),
+            provider_id.clone(),
             config.model_for(agent).to_string(),
             config.reasoning_for(agent).cloned(),
+            crate::model::lookup_protocol(ctx.catalog, &config, &provider_id),
         )
     };
     let options = crate::model::lookup_reasoning_options(ctx.catalog, &provider_id, &model_id);
@@ -474,6 +487,24 @@ async fn handle_reasoning_command(
             return Ok(());
         }
     };
+
+    // A bare `off` on a model that reasons by default with no off-switch can't
+    // actually disable reasoning. Don't persist a misleading `off` override - a
+    // later status view would report `off` while reasoning stays on - so reject
+    // it with an explanation and make no change.
+    let turning_off = matches!(&pref, Some(p)
+        if p.enabled == Some(false) && p.effort.is_none() && p.budget_tokens.is_none());
+    if turning_off && protocol.is_some_and(|p| !shirl_llm::can_disable_reasoning(p, &options)) {
+        let mut io_guard = ctx.shared_io.lock().await;
+        io_guard.insert_lines(&[
+            format!(
+                "{provider_id}/{model_id} reasons by default and exposes no off-switch; \
+                 reasoning stays on. No change made."
+            ),
+            format!("Supported: {summary}"),
+        ])?;
+        return Ok(());
+    }
 
     let label = describe_reasoning_pref(pref.as_ref());
     switch::apply_reasoning_switch(pref, ctx, active_agent, model_handle).await?;
@@ -851,5 +882,90 @@ mod tests {
         let joined = lines.join("\n");
 
         assert!(!joined.contains("commands"));
+    }
+
+    #[test]
+    fn parse_reasoning_clear_and_toggle() {
+        assert_eq!(parse_reasoning_arg("default", &[]), Ok(None));
+        assert_eq!(parse_reasoning_arg("reset", &[]), Ok(None));
+        assert_eq!(
+            parse_reasoning_arg("on", &[]),
+            Ok(Some(ReasoningPref {
+                enabled: Some(true),
+                ..Default::default()
+            }))
+        );
+        assert_eq!(
+            parse_reasoning_arg("off", &[]),
+            Ok(Some(ReasoningPref {
+                enabled: Some(false),
+                ..Default::default()
+            }))
+        );
+    }
+
+    #[test]
+    fn parse_reasoning_budget_validates_bounds() {
+        let opts = [ReasoningOption::BudgetTokens {
+            min: Some(1024),
+            max: Some(32000),
+        }];
+        // In range.
+        assert_eq!(
+            parse_reasoning_arg("4096", &opts),
+            Ok(Some(ReasoningPref {
+                budget_tokens: Some(4096),
+                ..Default::default()
+            }))
+        );
+        // Below the advertised minimum / above the maximum are rejected.
+        assert!(parse_reasoning_arg("10", &opts)
+            .unwrap_err()
+            .contains("minimum of 1024"));
+        assert!(parse_reasoning_arg("99999", &opts)
+            .unwrap_err()
+            .contains("maximum of 32000"));
+    }
+
+    #[test]
+    fn parse_reasoning_budget_unbounded_and_unsupported() {
+        // No bounds advertised: any positive budget is accepted.
+        let unbounded = [ReasoningOption::BudgetTokens {
+            min: None,
+            max: None,
+        }];
+        assert_eq!(
+            parse_reasoning_arg("1", &unbounded),
+            Ok(Some(ReasoningPref {
+                budget_tokens: Some(1),
+                ..Default::default()
+            }))
+        );
+        // A budget on an effort-only model is rejected.
+        assert!(parse_reasoning_arg(
+            "2048",
+            &[ReasoningOption::Effort {
+                values: vec!["low".into(), "high".into()]
+            }]
+        )
+        .unwrap_err()
+        .contains("does not support a thinking budget"));
+    }
+
+    #[test]
+    fn parse_reasoning_effort_validated_against_values() {
+        let opts = [ReasoningOption::Effort {
+            values: vec!["low".into(), "high".into()],
+        }];
+        assert_eq!(
+            parse_reasoning_arg("HIGH", &opts),
+            Ok(Some(ReasoningPref {
+                effort: Some("high".into()),
+                ..Default::default()
+            }))
+        );
+        assert!(parse_reasoning_arg("medium", &opts)
+            .unwrap_err()
+            .contains("not a valid effort level"));
     }
 }

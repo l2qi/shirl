@@ -1040,6 +1040,12 @@ impl ReplIo {
         self.draw()
     }
 
+    /// The configured brand (e.g. `shirl`), used to resolve per-brand paths
+    /// such as the clipboard cache dir.
+    pub(crate) fn brand(&self) -> String {
+        lock(&*self.status).brand.clone()
+    }
+
     pub fn set_context_window(&mut self, ctx: Option<usize>) -> sweet_core::Result<()> {
         lock(&*self.status).context_window = ctx;
         self.draw()

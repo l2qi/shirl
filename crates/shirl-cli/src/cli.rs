@@ -65,8 +65,7 @@ pub(crate) fn parse_args() -> Result<CliArgs> {
 
     // --continue: resolve the most recent session
     if continue_recent {
-        let home = dirs::home_dir().context("cannot determine home directory")?;
-        let sessions_dir = home.join(".shirl").join("sessions");
+        let sessions_dir = shirl_core::config_home()?.join("sessions");
         if sessions_dir.exists() {
             let mut entries: Vec<_> = std::fs::read_dir(&sessions_dir)
                 .with_context(|| format!("reading {}", sessions_dir.display()))?
@@ -130,13 +129,10 @@ pub(crate) fn init_observability(
     let filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| EnvFilter::new(DEFAULT_OBSERVABILITY_FILTER));
 
-    let log_dir = dirs::home_dir()
-        .map(|h| {
-            h.join(".shirl")
-                .join("sessions")
-                .join(session_id.to_string())
-        })
-        .context("cannot determine shirl sessions directory")?;
+    let log_dir = shirl_core::config_home()
+        .context("cannot determine shirl sessions directory")?
+        .join("sessions")
+        .join(session_id.to_string());
 
     std::fs::create_dir_all(&log_dir)
         .with_context(|| format!("creating session directory {}", log_dir.display()))?;

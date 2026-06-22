@@ -31,8 +31,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "clipboard-image")]
 const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
-/// Subdirectory under `~/.shirl/cache/` where pasted images are stored.
-const SUBDIR_PARTS: &[&str] = &[".shirl", "cache", "clipboard"];
+/// Subdirectory under the brand config home (`~/.{brand}/`) where pasted images
+/// are stored, e.g. `~/.shirl/cache/clipboard/`.
+const SUBDIR_PARTS: &[&str] = &["cache", "clipboard"];
 
 /// Error variants surfaced to the UI when a clipboard paste-image attempt fails.
 #[derive(Debug, thiserror::Error)]
@@ -159,14 +160,16 @@ fn has_image_extension(path: &Path) -> bool {
         .is_some_and(|e| IMAGE_EXTS.contains(&e.as_str()))
 }
 
-/// Resolve the default clipboard cache directory: `~/.shirl/cache/clipboard/`.
+/// Resolve the default clipboard cache directory for `brand`, e.g.
+/// `~/.shirl/cache/clipboard/` when `brand` is `shirl`. The leading-dot config
+/// home keeps clipboard pastes alongside the rest of a fork's on-disk state.
 ///
 /// Returns `None` if `dirs::home_dir()` returns `None` (extremely rare;
 /// happens on misconfigured systems with no HOME). Callers should treat the
 /// `None` case as "no cache available" and skip persistence.
-pub fn default_cache_dir() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let mut path = home;
+pub fn default_cache_dir(brand: &str) -> Option<PathBuf> {
+    let mut path = dirs::home_dir()?;
+    path.push(format!(".{brand}"));
     for part in SUBDIR_PARTS {
         path.push(part);
     }
@@ -316,17 +319,18 @@ mod tests {
     }
 
     #[test]
-    fn default_cache_dir_ends_in_clipboard_subdir() {
+    fn default_cache_dir_ends_in_brand_clipboard_subdir() {
         // Sanity-check the segment list. Doesn't assert HOME's value to avoid
         // making the test sensitive to the user's environment.
-        let path = default_cache_dir().expect("home dir available in test env");
+        let path = default_cache_dir("myapp").expect("home dir available in test env");
         let tail: Vec<_> = path
             .components()
             .rev()
-            .take(SUBDIR_PARTS.len())
+            .take(SUBDIR_PARTS.len() + 1)
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect();
-        let expected: Vec<String> = SUBDIR_PARTS.iter().rev().map(|s| s.to_string()).collect();
+        let mut expected: Vec<String> = SUBDIR_PARTS.iter().rev().map(|s| s.to_string()).collect();
+        expected.push(".myapp".to_string());
         assert_eq!(tail, expected);
     }
 }
