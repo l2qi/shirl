@@ -213,27 +213,16 @@ pub(crate) fn lookup_reasoning_options(
 }
 
 /// A compact, human-readable summary of a model's reasoning dialect(s), e.g.
-/// `on/off, effort[low/medium/high]`. Used for the picker hint and `/reasoning`
-/// help. Empty options render as `on/off` (a plain enable/disable override).
+/// `on/off, effort[low/medium/high]`. Used for the `/reasoning` help. Empty
+/// options render as `on/off` (a plain enable/disable override). Per-dialect
+/// rendering lives on [`ReasoningOption::capability_label`].
 pub(crate) fn reasoning_capability_summary(options: &[ReasoningOption]) -> String {
     if options.is_empty() {
         return "on/off".to_string();
     }
     options
         .iter()
-        .map(|o| match o {
-            ReasoningOption::Toggle => "on/off".to_string(),
-            ReasoningOption::Effort { values } => format!("effort[{}]", values.join("/")),
-            ReasoningOption::BudgetTokens { min, max } => {
-                let range = match (min, max) {
-                    (Some(a), Some(b)) => format!("{a}..{b}"),
-                    (Some(a), None) => format!(">={a}"),
-                    (None, Some(b)) => format!("<={b}"),
-                    (None, None) => "any".to_string(),
-                };
-                format!("budget[{range}]")
-            }
-        })
+        .map(ReasoningOption::capability_label)
         .collect::<Vec<_>>()
         .join(", ")
 }

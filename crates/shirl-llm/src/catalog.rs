@@ -60,6 +60,37 @@ pub enum ReasoningOption {
     BudgetTokens { min: Option<u32>, max: Option<u32> },
 }
 
+impl ReasoningOption {
+    /// Terse dialect-kind label, independent of parameters: `on/off`, `effort`,
+    /// or `budget`. Used for the compact model-picker hint.
+    pub fn kind_label(&self) -> &'static str {
+        match self {
+            ReasoningOption::Toggle => "on/off",
+            ReasoningOption::Effort { .. } => "effort",
+            ReasoningOption::BudgetTokens { .. } => "budget",
+        }
+    }
+
+    /// Parameter-aware capability label, e.g. `on/off`,
+    /// `effort[low/medium/high]`, or `budget[1024..32000]`. Used for the
+    /// `/reasoning` capability summary.
+    pub fn capability_label(&self) -> String {
+        match self {
+            ReasoningOption::Toggle => "on/off".to_string(),
+            ReasoningOption::Effort { values } => format!("effort[{}]", values.join("/")),
+            ReasoningOption::BudgetTokens { min, max } => {
+                let range = match (min, max) {
+                    (Some(a), Some(b)) => format!("{a}..{b}"),
+                    (Some(a), None) => format!(">={a}"),
+                    (None, Some(b)) => format!("<={b}"),
+                    (None, None) => "any".to_string(),
+                };
+                format!("budget[{range}]")
+            }
+        }
+    }
+}
+
 /// A single model from the catalog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogModel {
@@ -887,6 +918,38 @@ mod tests {
         assert_eq!(by_id("futurist"), vec![ReasoningOption::Toggle]);
         // No `reasoning_options` field -> empty.
         assert!(by_id("plain").is_empty());
+    }
+
+    #[test]
+    fn reasoning_option_labels() {
+        let toggle = ReasoningOption::Toggle;
+        let effort = ReasoningOption::Effort {
+            values: vec!["low".to_string(), "high".to_string()],
+        };
+        let bounded = ReasoningOption::BudgetTokens {
+            min: Some(1024),
+            max: Some(32000),
+        };
+        let floor = ReasoningOption::BudgetTokens {
+            min: Some(1024),
+            max: None,
+        };
+        let unbounded = ReasoningOption::BudgetTokens {
+            min: None,
+            max: None,
+        };
+
+        // Terse kind labels (picker hint).
+        assert_eq!(toggle.kind_label(), "on/off");
+        assert_eq!(effort.kind_label(), "effort");
+        assert_eq!(bounded.kind_label(), "budget");
+
+        // Parameter-aware capability labels (/reasoning summary).
+        assert_eq!(toggle.capability_label(), "on/off");
+        assert_eq!(effort.capability_label(), "effort[low/high]");
+        assert_eq!(bounded.capability_label(), "budget[1024..32000]");
+        assert_eq!(floor.capability_label(), "budget[>=1024]");
+        assert_eq!(unbounded.capability_label(), "budget[any]");
     }
 
     #[test]

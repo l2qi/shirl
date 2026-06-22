@@ -15,14 +15,7 @@ fn reasoning_hint(options: &[ReasoningOption]) -> String {
     if options.is_empty() {
         return String::new();
     }
-    let kinds: Vec<&str> = options
-        .iter()
-        .map(|o| match o {
-            ReasoningOption::Toggle => "on/off",
-            ReasoningOption::Effort { .. } => "effort",
-            ReasoningOption::BudgetTokens { .. } => "budget",
-        })
-        .collect();
+    let kinds: Vec<&str> = options.iter().map(ReasoningOption::kind_label).collect();
     format!("  {}", kinds.join("/"))
 }
 
