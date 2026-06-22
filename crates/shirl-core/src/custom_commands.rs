@@ -6,7 +6,7 @@
 //!
 //! A custom command is a Markdown file whose body is a prompt template. Invoking
 //! `/name [args]` renders the template (substituting `$ARGUMENTS`, or appending
-//! the args) and submits the result as a user turn — the command is *content*,
+//! the args) and submits the result as a user turn - the command is *content*,
 //! not behavior, so it carries no handler.
 //!
 //! Discovery (project shadows user by command name):
@@ -37,7 +37,7 @@ impl CustomCommandsProvider {
     /// `reserved` (built-in and mode commands) are skipped with a warning.
     pub fn load(reserved: &[&str]) -> Self {
         let start = std::env::current_dir().ok();
-        let user_dir = dirs::home_dir().map(|h| h.join(".shirl").join("commands"));
+        let user_dir = crate::paths::config_home().ok().map(|h| h.join("commands"));
         Self::load_from(user_dir.as_deref(), start.as_deref(), reserved)
     }
 
@@ -66,7 +66,7 @@ impl CustomCommandsProvider {
             .filter(|(name, _)| {
                 if reserved.contains(&name.as_str()) {
                     eprintln!(
-                        "shirl: skipping custom command '/{name}' — name is reserved by a built-in"
+                        "shirl: skipping custom command '/{name}' - name is reserved by a built-in"
                     );
                     false
                 } else {

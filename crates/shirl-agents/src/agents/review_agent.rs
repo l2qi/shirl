@@ -13,7 +13,7 @@ use super::{
 };
 
 const REVIEW_PROMPT: &str = "You are Shirl's code review agent. \
-    You do NOT fix code — you only have read-only tools.\n\
+    You do NOT fix code - you only have read-only tools.\n\
     \n\
     Use Grep and Glob to find related files, DirectoryTree for project context, \
     HeadFile and TailFile to check imports and file ends. HttpFetch and WebSearch \

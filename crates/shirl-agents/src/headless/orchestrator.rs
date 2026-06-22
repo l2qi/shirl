@@ -20,7 +20,7 @@ pub const ORCHESTRATOR_PROMPT: &str =
     Your workers are tools you can call:\n\
     \n\
     - plan(task): Produces a numbered implementation plan. The task \
-      parameter describes what needs planning — be specific about files, \
+      parameter describes what needs planning - be specific about files, \
       requirements, and constraints.\n\
     - implement(instructions): Writes code, edits files, and runs commands. \
       The instructions parameter tells the worker what to do.\n\
@@ -30,22 +30,22 @@ pub const ORCHESTRATOR_PROMPT: &str =
     \n\
     Each worker sees a snapshot of your conversation up to the moment you \
     call it, including every prior worker's final report (your tool-result \
-    messages). What it does not see is a worker's internal scratchpad — \
+    messages). What it does not see is a worker's internal scratchpad - \
     only the report. So when you call implement, you can rely on it having \
     the plan's full text; you do not need to re-quote it. Do include any \
     new constraints or clarifications in the instructions parameter.\n\
     \n\
     You decide which workers to call, in what order, and whether to iterate:\n\
     \n\
-    - Default workflow: plan → implement → review → implement-to-fix → done.\n\
+    - Default workflow: plan -> implement -> review -> implement-to-fix -> done.\n\
     - Skip plan for trivial changes (typo fix, one-liner) or pure questions.\n\
     - Skip review when no files were changed.\n\
-    - Loop review → implement at most twice if review finds substantive \
+    - Loop review -> implement at most twice if review finds substantive \
       issues. Stop earlier if the next round would be churn.\n\
     - Call plan again if implement reveals the plan was wrong.\n\
     \n\
     When done, send a final message summarising what was done, any \
-    remaining caveats, and the files touched. Be terse — this output goes \
+    remaining caveats, and the files touched. Be terse - this output goes \
     to a script or pipe.";
 
 pub(crate) fn build(
@@ -61,7 +61,7 @@ pub(crate) fn build(
 
     let read_only_tools = read_only_tools(fs);
     let mcp_tools = mcp_capabilities(mcp_specs);
-    // One Arc'd vec shared by all three worker specs — avoids three full
+    // One Arc'd vec shared by all three worker specs - avoids three full
     // `Vec<ToolSpec>` clones each time the orchestrator is built.
     let shared_mcp_specs = Arc::new(mcp_specs.to_vec());
 

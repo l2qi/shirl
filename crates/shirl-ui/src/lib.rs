@@ -34,6 +34,7 @@ pub use file_picker::{FileEntry, FilePickerState};
 pub use title::compute_title;
 
 use std::io;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -54,7 +55,8 @@ use self::activity::{
     active_tools_render_count, breath_color, format_elapsed, spinner_word, spinner_word_past,
     ActiveTool, LastOutput, ACCENT,
 };
-use self::history::{default_history_path, History};
+pub use self::history::default_history_path;
+use self::history::History;
 use self::input::{ChordTracker, InputOutcome, InputState};
 pub(crate) use self::layout::{char_width, span_width};
 use self::layout::{
@@ -69,7 +71,7 @@ use self::title::{detect_git_branch, short_cwd};
 const HISTORY_CAPACITY: usize = 1000;
 const VIEWPORT_HEIGHT: u16 = 10;
 // The viewport is `VIEWPORT_HEIGHT` rows tall and bottom-aligned. Six rows are
-// fixed — from the bottom up: blank, status, bottom rule, input (≥1 row,
+// fixed - from the bottom up: blank, status, bottom rule, input (>=1 row,
 // growing as the line wraps), top rule, working indicator. Any rows above
 // hold a top spacer (which keeps the footer pinned to the bottom) and a live
 // region for in-progress tool calls.
@@ -126,7 +128,7 @@ pub enum Command {
     ToggleTranscript,
     /// The user typed `@` (or appended characters after `@`), opening
     /// or updating the inline file-path picker. The payload is the text
-    /// after the nearest `@` before the cursor — the fuzzy-search filter.
+    /// after the nearest `@` before the cursor - the fuzzy-search filter.
     FilePickerFilter(String),
     /// The user pressed Enter/Tab while the file picker was open, accepting
     /// the selected entry. The payload is the selected file path.
@@ -139,6 +141,7 @@ pub enum Command {
 /// Status info rendered in the inline footer.
 #[derive(Clone)]
 pub struct StatusInfo {
+    pub brand: String,
     pub version: String,
     pub model: String,
     pub cwd: String,
@@ -151,12 +154,13 @@ pub struct StatusInfo {
 }
 
 impl StatusInfo {
-    pub fn new(model: String, context_window: Option<usize>) -> Self {
+    pub fn new(brand: String, model: String, context_window: Option<usize>) -> Self {
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_default();
         let git_branch = detect_git_branch(&cwd);
         Self {
+            brand,
             version: env!("CARGO_PKG_VERSION").to_string(),
             model,
             cwd,
@@ -191,11 +195,11 @@ impl StatusInfo {
             None => short_cwd(&self.cwd),
         };
         let base = format!(
-            "shirl {}{} · {} · {} · {}",
-            self.version, mode_str, self.model, cwd_display, context
+            "{} {}{} · {} · {} · {}",
+            self.brand, self.version, mode_str, self.model, cwd_display, context
         );
         let mut spans = vec![Span::raw(base)];
-        // Permission badge — appended at the end, colored, hidden for Ask.
+        // Permission badge - appended at the end, colored, hidden for Ask.
         if let Some(mode) = &self.permission_mode {
             let (label, color) = match mode {
                 PermissionMode::AutoEdit => ("accept edits on", Color::Rgb(180, 120, 220)),
@@ -273,10 +277,10 @@ fn render_chat(
         )
     };
 
-    // Live region for in-progress tool calls — bounded by the free rows that
+    // Live region for in-progress tool calls - bounded by the free rows that
     // would otherwise be spacer.
     let fp_base = file_picker.map(|fp| fp.height()).unwrap_or(0);
-    // When the file picker is open, reclaim the working row — the user is
+    // When the file picker is open, reclaim the working row - the user is
     // idle and the breathing `⏺` serves no purpose. This gives 5 visible
     // picker rows instead of 4 without growing the viewport.
     let (fp_height, working_rows) = if fp_base > 0 {
@@ -313,14 +317,14 @@ fn render_chat(
     let bottom_rule_idx = 6;
     let status_idx = 7;
 
-    // Activity glyph color — shared across the working row and each
+    // Activity glyph color - shared across the working row and each
     // in-progress tool line so they breathe as one heartbeat. Body text uses
     // `ACCENT` so the dot at peak matches it exactly.
     let elapsed = working_since.map(|s| s.elapsed()).unwrap_or_default();
     let glyph_style = Style::default().fg(breath_color(elapsed));
     let body_style = Style::default().fg(ACCENT);
 
-    // In-progress tool live region — breathing `⏺` per running tool.
+    // In-progress tool live region - breathing `⏺` per running tool.
     if live_lines > 0 {
         let mut lines: Vec<Line> = Vec::with_capacity(live_lines as usize);
         let visible = (live_lines as usize).min(active_tools.len());
@@ -348,12 +352,12 @@ fn render_chat(
         f.render_widget(Paragraph::new(Text::from(lines)), chunks[live_idx]);
     }
 
-    // File picker — inline list of matching paths above the input.
+    // File picker - inline list of matching paths above the input.
     if let Some(fp) = file_picker {
         file_picker::render_file_picker(f, fp, chunks[fp_idx]);
     }
 
-    // Working indicator — `⏺` breathes; a whimsical word names the activity
+    // Working indicator - `⏺` breathes; a whimsical word names the activity
     // and the elapsed-time text counts up.
     if let Some(since) = working_since {
         let elapsed = since.elapsed();
@@ -663,7 +667,7 @@ pub struct ReplIo {
     pending_line: String,
     raw_mode: bool,
     input: InputState,
-    /// `Some(start_instant)` for the duration of a turn (`on_turn_start` →
+    /// `Some(start_instant)` for the duration of a turn (`on_turn_start` ->
     /// `on_turn_end` / abort). Drives the elapsed-seconds counter and the
     /// in-progress tool blink. Touched only under the `ReplIo` async lock.
     working_since: Option<Instant>,
@@ -695,7 +699,7 @@ impl ReplIo {
     /// `@filter` token under the cursor with `@path` + trailing space.
     ///
     /// Paths containing whitespace or `"` characters are automatically
-    /// quoted and escaped (`"` → `\"`, `\` → `\\`) so the `resolve_images`
+    /// quoted and escaped (`"` -> `\"`, `\` -> `\\`) so the `resolve_images`
     /// parser can extract them correctly.
     pub fn insert_file_mention(&mut self, path: &str) {
         let quoted = quote_path_for_mention(path);
@@ -812,8 +816,10 @@ impl AgentIo for SharedIo {
 
 impl ReplIo {
     pub fn new(
+        brand: String,
         model: String,
         context_window: Option<usize>,
+        history_path: PathBuf,
         cmd_tx: mpsc::Sender<Command>,
     ) -> sweet_core::Result<Self> {
         enable_raw_mode().map_err(io_err)?;
@@ -831,8 +837,8 @@ impl ReplIo {
             )
             .map_err(io_err)?,
         ));
-        let history = History::load(default_history_path(), HISTORY_CAPACITY);
-        let status = Arc::new(Mutex::new(StatusInfo::new(model, context_window)));
+        let history = History::load(history_path, HISTORY_CAPACITY);
+        let status = Arc::new(Mutex::new(StatusInfo::new(brand, model, context_window)));
         Ok(Self {
             terminal,
             history,
@@ -856,9 +862,10 @@ impl ReplIo {
     }
 
     pub fn print_banner(&mut self, session_id: &str) -> sweet_core::Result<()> {
+        let brand = lock(&*self.status).brand.clone();
         self.insert_lines(&[
             String::new(),
-            format!("shirl · session {session_id}"),
+            format!("{brand} · session {session_id}"),
             String::new(),
         ])?;
         self.draw()
@@ -941,7 +948,7 @@ impl ReplIo {
         self.draw()
     }
 
-    /// Clear the "working" timer. Does not touch `active_tools` — callers that
+    /// Clear the "working" timer. Does not touch `active_tools` - callers that
     /// want to acknowledge a cancellation should use [`Self::show_cancelled`], which
     /// flushes in-flight tools to scrollback first so they appear in natural
     /// reading order (tools, then summary).
@@ -1033,15 +1040,22 @@ impl ReplIo {
         self.draw()
     }
 
+    /// The configured brand (e.g. `shirl`), used to resolve per-brand paths
+    /// such as the clipboard cache dir.
+    pub(crate) fn brand(&self) -> String {
+        lock(&*self.status).brand.clone()
+    }
+
     pub fn set_context_window(&mut self, ctx: Option<usize>) -> sweet_core::Result<()> {
         lock(&*self.status).context_window = ctx;
         self.draw()
     }
 
     pub fn print_resume_hint(&mut self, session_id: &str) -> sweet_core::Result<()> {
+        let brand = lock(&*self.status).brand.clone();
         self.insert_lines(&[
             String::new(),
-            format!("Resume this session with: shirl --resume {session_id}"),
+            format!("Resume this session with: {brand} --resume {session_id}"),
         ])
     }
 
@@ -1075,7 +1089,7 @@ impl ReplIo {
 
     /// Push one styled line into terminal scrollback above the viewport.
     ///
-    /// Does NOT redraw the viewport — callers that mutate further or batch
+    /// Does NOT redraw the viewport - callers that mutate further or batch
     /// multiple inserts must end with their own `self.draw()`. The inserted
     /// line itself is already visible (it's written directly into terminal
     /// scrollback via `insert_before`); the deferred draw only updates the
@@ -1257,7 +1271,7 @@ impl ReplIo {
     /// informed y/n decision. Lines are rendered with color: red for `-`
     /// (removed), green for `+` (added), muted for context/headers.
     ///
-    /// Errors are intentionally swallowed — the preview is cosmetic. If
+    /// Errors are intentionally swallowed - the preview is cosmetic. If
     /// rendering fails the approval prompt should still appear so the user
     /// can approve or deny.
     pub fn flush_approval_preview(&mut self, preview: &sweet_core::ApprovalPreview) {
@@ -1282,7 +1296,7 @@ impl ReplIo {
                 // The `--- ` / `+++ ` file headers are always the first two
                 // lines; classify the body only after them, by diff prefix.
                 // Sniffing the prefix on every line would miscolor a removed
-                // line whose text starts with `--` (rendered as `---…`).
+                // line whose text starts with `--` (rendered as `---...`).
                 for (i, line) in diff.lines().enumerate() {
                     let style = if i < 2 || line.starts_with("@@") {
                         ctx_style
@@ -1306,7 +1320,7 @@ impl ReplIo {
                 if truncated {
                     lines.truncate(PREVIEW_LINE_CAP);
                 }
-                // A new file is entirely new content — render every line as
+                // A new file is entirely new content - render every line as
                 // an addition rather than sniffing diff prefixes it lacks.
                 for line in &lines {
                     let _ = self.insert_styled_line(line, added_style);
@@ -1408,7 +1422,7 @@ impl ReplIo {
                         // when the picker has actionable entries. Reading the
                         // shared state directly (vs. re-deriving from input text)
                         // means Enter falls through to Submit when the user's
-                        // filter matches nothing — they're not held hostage by
+                        // filter matches nothing - they're not held hostage by
                         // an empty picker.
                         let picker_has_entries = io
                             .file_picker
@@ -1577,7 +1591,7 @@ impl ReplIo {
                                 // pending cancel is displayed first.
                                 //
                                 // Submitting clears the buffer, so any open
-                                // file-picker is now stale — drop it before
+                                // file-picker is now stale - drop it before
                                 // redrawing.
                                 io.file_picker = None;
                                 let _ = io.draw();
@@ -1590,14 +1604,14 @@ impl ReplIo {
                                 }
                                 // Detect @-mention trigger for the file picker.
                                 // The input thread detects picker mode from the
-                                // text — no cross-thread state needed.
+                                // text - no cross-thread state needed.
                                 match mention_filter(io.input.current(), io.input.cursor()) {
                                     Some(filter) => {
                                         let _ =
                                             io.cmd_tx.try_send(Command::FilePickerFilter(filter));
                                     }
                                     None => {
-                                        // No `@` trigger — close any open picker.
+                                        // No `@` trigger - close any open picker.
                                         // This handles backspacing over the `@`.
                                         let _ = io.cmd_tx.try_send(Command::FilePickerClose);
                                     }
@@ -1632,7 +1646,7 @@ impl ReplIo {
                         let cleaned = sanitize_pasted_text(&text);
                         io.input.insert_str(&cleaned);
                         // Paste mutates the buffer, so a popup picker (model,
-                        // provider, API-key) must see the new value — otherwise
+                        // provider, API-key) must see the new value - otherwise
                         // its internal filter stays stale (a pasted key would
                         // look empty on submit). Keystrokes reach the same path
                         // via InputOutcome::Redraw; paste bypasses on_key, so
@@ -1698,7 +1712,7 @@ impl AgentIo for ReplIo {
         self.last_output = LastOutput::Start;
         self.working_since = Some(Instant::now());
         // Vary the whimsical word between turns. Sub-second nanos are plenty
-        // of entropy for picking a starting word — no need to pull in `rand`.
+        // of entropy for picking a starting word - no need to pull in `rand`.
         self.spinner_seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.subsec_nanos() as u64)
@@ -1709,7 +1723,7 @@ impl AgentIo for ReplIo {
 
     async fn on_content_delta(&mut self, delta: &str) -> sweet_core::Result<()> {
         // Note: we deliberately do NOT clear `working_since` here. A turn
-        // routinely streams text → calls tools → streams more, so the
+        // routinely streams text -> calls tools -> streams more, so the
         // indicator must stay alive until `on_turn_end`.
         let mut dirty = false;
         if matches!(self.last_output, LastOutput::Start | LastOutput::ToolResult) {
@@ -1741,7 +1755,7 @@ impl AgentIo for ReplIo {
             name: call.name.clone(),
             args,
         });
-        // Held in the viewport live region — drawn (with pulsing ⏺) by the
+        // Held in the viewport live region - drawn (with pulsing ⏺) by the
         // main loop's tick. Flushed to scrollback when its result arrives.
         self.draw()?;
         Ok(())
@@ -1799,7 +1813,7 @@ impl AgentIo for ReplIo {
             )
         });
         self.working_since = None;
-        // Defensively clear — should already be empty in the normal path.
+        // Defensively clear - should already be empty in the normal path.
         self.active_tools.clear();
         self.flush_pending_all()?;
         // Blank separator between assistant response and the summary.

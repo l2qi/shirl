@@ -8,7 +8,7 @@ use shirl_agents::agents::AgentKind;
 use shirl_core::Resolved;
 use sweet_agent::{Agent, AgentIo, TurnResult};
 use sweet_core::Model;
-use sweet_core::PermissionState;
+use sweet_core::{FinishReason, PermissionState};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
@@ -75,14 +75,30 @@ async fn attachment_check(
 
     // Only warn about media types that are actually attached. The catalog
     // exposes a `vision` flag for images but no document-support flag yet,
-    // so file attachments (PDFs) are never flagged — extend here once
+    // so file attachments (PDFs) are never flagged - extend here once
     // providers add the field.
     if has_images && !model.vision {
         Some(format!(
-            "⚠ Model {name} does not support image input — attachments may be ignored"
+            "⚠ Model {name} does not support image input - attachments may be ignored"
         ))
     } else {
         None
+    }
+}
+
+/// A user-facing scrollback warning for a non-normal finish reason, or `None`
+/// for a clean stop / tool-call turn. Surfaces truncation and refusals the
+/// model would otherwise hide (incl. Fable 5 / Opus 4.8 HTTP-200 refusals).
+pub(crate) fn finish_reason_warning(reason: &FinishReason) -> Option<String> {
+    match reason {
+        FinishReason::Length => Some(
+            "⚠ Response was cut off at the model's output limit \
+             (raise max_tokens or ask it to continue)."
+                .into(),
+        ),
+        FinishReason::ContentFilter => Some("⚠ Response was stopped by a content filter.".into()),
+        FinishReason::Refusal => Some("⚠ The model declined to complete this request.".into()),
+        FinishReason::Stop | FinishReason::ToolCalls | FinishReason::Other(_) => None,
     }
 }
 
@@ -131,7 +147,7 @@ pub(crate) async fn cycle_permission_mode(
     {
         sandbox_warning_shown.store(true, std::sync::atomic::Ordering::Relaxed);
         io_guard.insert_lines(&[
-            "⚠ Full-auto mode with no sandbox — the agent can run any command without restriction."
+            "⚠ Full-auto mode with no sandbox - the agent can run any command without restriction."
                 .to_string(),
             "  Start with --sandbox for OS-level isolation.".to_string(),
         ])?;

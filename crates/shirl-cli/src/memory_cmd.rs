@@ -28,7 +28,7 @@ const DISTILL_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Slot holding the most recent background distill pass, so an explicit
 /// `/memory distill` can wait it out (the background pass holds the span
-/// claim — without joining it the command would report "nothing new" while
+/// claim - without joining it the command would report "nothing new" while
 /// a pass is visibly in flight).
 pub(crate) type DistillTask = Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>;
 
@@ -131,7 +131,8 @@ fn build_embedder_from_spec(
     let (provider_id, model_id) = spec
         .split_once('/')
         .ok_or_else(|| anyhow::anyhow!("expected `provider/model-id`"))?;
-    let params = resolve_provider_params(provider_id, config, auth, catalog, model_id)?;
+    // Embedders have no reasoning or sampling, so no overrides are threaded here.
+    let params = resolve_provider_params(provider_id, config, auth, catalog, model_id, None, None)?;
     if params.api_key.is_empty() {
         anyhow::bail!("no API key for provider `{provider_id}` in auth.toml");
     }
@@ -153,7 +154,7 @@ async fn snapshot_agent(
 
 /// Automatic pass: claim the pending span (when it has reached `min_items`)
 /// and distill it on a detached task, so the UI never waits on the model
-/// call. Gated on `auto_distill`. The outcome lands in scrollback — silent
+/// call. Gated on `auto_distill`. The outcome lands in scrollback - silent
 /// when nothing was written, one warning line on failure.
 pub(crate) async fn spawn_distill(
     wiring: &MemoryWiring,
@@ -223,7 +224,7 @@ fn distill_result_lines(report: &DistillReport) -> Vec<String> {
 }
 
 /// Explicit `/memory distill`: first waits out any in-flight background
-/// pass (which holds the span claim — its `✦` line lands in scrollback as
+/// pass (which holds the span claim - its `✦` line lands in scrollback as
 /// it finishes), then claims and distills whatever remains, inline under
 /// the working indicator. Blocking is right when the user asked for the
 /// pass; works regardless of `auto_distill`.
@@ -235,7 +236,7 @@ async fn run_distill_command(ctx: &RuntimeCtx<'_>, wiring: &MemoryWiring) -> Res
     let joined = pending.is_some();
     let mut spinning = false;
 
-    // Keep the breathing indicator animating while we wait — same pattern
+    // Keep the breathing indicator animating while we wait - same pattern
     // as the other slow slash commands.
     let mut tick = tokio::time::interval(crate::commands::REDRAW_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -403,7 +404,7 @@ async fn run_subcommand(args: &str, wiring: &MemoryWiring) -> Vec<String> {
                 if parts.next() == Some("all") {
                     // The mandatory scope is the confirmation step: wiping is
                     // irreversible, and the user scope is shared across every
-                    // project — never wipe on a bare `forget all`.
+                    // project - never wipe on a bare `forget all`.
                     let scope = match parts.next() {
                         Some("user") => wiring.user_scope.clone(),
                         Some("project") => wiring.project_scope.clone(),
@@ -421,7 +422,7 @@ async fn run_subcommand(args: &str, wiring: &MemoryWiring) -> Vec<String> {
             let Ok(id) = rest.parse::<sweet_core::MemoryId>() else {
                 return vec![format!("Invalid memory id `{rest}`. {MEMORY_USAGE}")];
             };
-            // Only ids in this run's scopes are deletable — same visibility
+            // Only ids in this run's scopes are deletable - same visibility
             // rule the model's tools follow.
             let visible = match wiring.store.get(&id).await {
                 Ok(Some(record)) => scopes.contains(&record.scope),
@@ -480,7 +481,7 @@ async fn forget_all(scope: &sweet_core::MemoryScope, wiring: &MemoryWiring) -> V
                 }
             }
         }
-        // A batch that deletes nothing would loop forever — bail instead.
+        // A batch that deletes nothing would loop forever - bail instead.
         if deleted == before {
             return vec![format!(
                 "Stopped: store kept returning undeletable memories ({deleted} deleted)."

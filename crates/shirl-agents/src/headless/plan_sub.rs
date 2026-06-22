@@ -22,7 +22,7 @@ pub(crate) fn plan_subagent_spec(deps: WorkerDeps, store: Arc<dyn ReportStore>) 
     SubagentSpec::new(
         "plan",
         "Produce a numbered implementation plan. The task parameter describes \
-         what needs planning — be specific about files, requirements, and constraints.",
+         what needs planning - be specific about files, requirements, and constraints.",
         serde_json::to_value(schemars::schema_for!(PlanInput)).expect("schema for PlanInput"),
         PlanHandler { deps, store },
     )

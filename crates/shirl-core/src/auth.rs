@@ -40,9 +40,7 @@ pub struct AuthStore {
 
 impl AuthStore {
     pub fn default_path() -> Result<std::path::PathBuf> {
-        let home =
-            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-        Ok(home.join(".shirl").join("auth.toml"))
+        Ok(crate::paths::config_home()?.join("auth.toml"))
     }
 
     pub fn load(path: &Path) -> Result<Self> {

@@ -50,7 +50,7 @@ impl History {
         else {
             return;
         };
-        // Restrict to owner read/write only — history may contain sensitive
+        // Restrict to owner read/write only - history may contain sensitive
         // data if redaction is ever incomplete.
         let _ = file.set_permissions(std::fs::Permissions::from_mode(0o600));
         for line in &self.entries {
@@ -59,15 +59,15 @@ impl History {
     }
 }
 
-/// Default location: `~/.shirl/history.txt`, or `./.shirl_history` if no home
+/// Default location: `~/.{brand}/history.txt`, or `./.{brand}_history` if no home
 /// directory is available.
-pub(super) fn default_history_path() -> PathBuf {
+pub fn default_history_path(brand: &str) -> PathBuf {
     if let Some(home) = dirs::home_dir() {
-        let dir = home.join(".shirl");
+        let dir = home.join(format!(".{brand}"));
         let _ = fs::create_dir_all(&dir);
         dir.join("history.txt")
     } else {
-        PathBuf::from(".shirl_history")
+        PathBuf::from(format!(".{brand}_history"))
     }
 }
 

@@ -8,7 +8,7 @@
 //! Two cases handled:
 //!
 //! - **Raw image data** on the clipboard (e.g. macOS screenshot to clipboard
-//!   via `Cmd+Ctrl+Shift+4`, or right-click → Copy Image in a browser).
+//!   via `Cmd+Ctrl+Shift+4`, or right-click -> Copy Image in a browser).
 //!   Read via `arboard::Clipboard::get_image()` as an RGBA buffer, then
 //!   re-encoded to PNG.
 //! - **A file list** of one or more image paths (e.g. Cmd+C on an image file
@@ -31,14 +31,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[cfg(feature = "clipboard-image")]
 const IMAGE_EXTS: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 
-/// Subdirectory under `~/.shirl/cache/` where pasted images are stored.
-const SUBDIR_PARTS: &[&str] = &[".shirl", "cache", "clipboard"];
+/// Subdirectory under the brand config home (`~/.{brand}/`) where pasted images
+/// are stored, e.g. `~/.shirl/cache/clipboard/`.
+const SUBDIR_PARTS: &[&str] = &["cache", "clipboard"];
 
 /// Error variants surfaced to the UI when a clipboard paste-image attempt fails.
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardImageError {
     /// The clipboard does not contain any image data or image file.
-    /// Distinct from a hard error — used to render "no image in clipboard".
+    /// Distinct from a hard error - used to render "no image in clipboard".
     #[error("no image in clipboard")]
     NoImage,
     /// No clipboard backend is available (e.g. headless Linux without X11
@@ -47,7 +48,7 @@ pub enum ClipboardImageError {
     #[error("no clipboard backend available")]
     NoClipboard,
     /// Clipboard backend open / connection failure that is neither
-    /// "platform unsupported" nor a decode error — typically an X11/Wayland
+    /// "platform unsupported" nor a decode error - typically an X11/Wayland
     /// connection problem reported by `arboard::Clipboard::new()`.
     #[error("clipboard backend error: {0}")]
     Backend(String),
@@ -69,7 +70,7 @@ pub enum ClipboardImageError {
 /// Read the system clipboard. If it carries image data or a file list whose
 /// first entry is a recognised image file, return PNG-encoded bytes.
 ///
-/// Re-encodes to PNG even when the source is already PNG — a uniform output
+/// Re-encodes to PNG even when the source is already PNG - a uniform output
 /// MIME type simplifies the rest of the pipeline and the cost is bounded
 /// (one decode + one encode of a screenshot-sized buffer).
 #[cfg(feature = "clipboard-image")]
@@ -79,7 +80,7 @@ pub fn read_clipboard_png() -> Result<Vec<u8>, ClipboardImageError> {
         other => ClipboardImageError::Backend(other.to_string()),
     })?;
 
-    // Try direct image data first — the common case for screenshots and
+    // Try direct image data first - the common case for screenshots and
     // browser "Copy Image". Translate "not available" into the NoImage branch
     // so we can try the file-list fallback before giving up.
     match clipboard.get_image() {
@@ -159,14 +160,16 @@ fn has_image_extension(path: &Path) -> bool {
         .is_some_and(|e| IMAGE_EXTS.contains(&e.as_str()))
 }
 
-/// Resolve the default clipboard cache directory: `~/.shirl/cache/clipboard/`.
+/// Resolve the default clipboard cache directory for `brand`, e.g.
+/// `~/.shirl/cache/clipboard/` when `brand` is `shirl`. The leading-dot config
+/// home keeps clipboard pastes alongside the rest of a fork's on-disk state.
 ///
 /// Returns `None` if `dirs::home_dir()` returns `None` (extremely rare;
 /// happens on misconfigured systems with no HOME). Callers should treat the
 /// `None` case as "no cache available" and skip persistence.
-pub fn default_cache_dir() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let mut path = home;
+pub fn default_cache_dir(brand: &str) -> Option<PathBuf> {
+    let mut path = dirs::home_dir()?;
+    path.push(format!(".{brand}"));
     for part in SUBDIR_PARTS {
         path.push(part);
     }
@@ -237,12 +240,12 @@ mod tests {
         assert!(!has_image_extension(Path::new("/tmp/source.rs")));
         assert!(!has_image_extension(Path::new("/tmp/dir")));
         assert!(!has_image_extension(Path::new("/tmp/.hidden")));
-        // SVG isn't in the allow list — providers don't accept it.
+        // SVG isn't in the allow list - providers don't accept it.
         assert!(!has_image_extension(Path::new("/tmp/vector.svg")));
     }
 
     /// Round-trip a tiny RGBA buffer through the encode path. Validates we
-    /// produce valid PNG bytes that decode back to the same pixels — covers
+    /// produce valid PNG bytes that decode back to the same pixels - covers
     /// the wire-format contract the real paste path depends on.
     #[cfg(feature = "clipboard-image")]
     #[test]
@@ -316,17 +319,18 @@ mod tests {
     }
 
     #[test]
-    fn default_cache_dir_ends_in_clipboard_subdir() {
+    fn default_cache_dir_ends_in_brand_clipboard_subdir() {
         // Sanity-check the segment list. Doesn't assert HOME's value to avoid
         // making the test sensitive to the user's environment.
-        let path = default_cache_dir().expect("home dir available in test env");
+        let path = default_cache_dir("myapp").expect("home dir available in test env");
         let tail: Vec<_> = path
             .components()
             .rev()
-            .take(SUBDIR_PARTS.len())
+            .take(SUBDIR_PARTS.len() + 1)
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect();
-        let expected: Vec<String> = SUBDIR_PARTS.iter().rev().map(|s| s.to_string()).collect();
+        let mut expected: Vec<String> = SUBDIR_PARTS.iter().rev().map(|s| s.to_string()).collect();
+        expected.push(".myapp".to_string());
         assert_eq!(tail, expected);
     }
 }

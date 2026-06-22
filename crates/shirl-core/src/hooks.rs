@@ -21,14 +21,14 @@ impl AutoCompactionProcedure {
 
     /// Cheap compaction pass: replace tool-result messages older than the
     /// `preserve_recent` window with a short placeholder. Returns the estimated
-    /// number of tokens freed — `context_size()` cannot observe this edit (the
+    /// number of tokens freed - `context_size()` cannot observe this edit (the
     /// cleared messages predate the provider's most recent `prompt_tokens`
     /// measurement), so the caller subtracts this to decide whether the
     /// costlier summarization pass is still needed.
     fn clear_old_tool_results(&self, session: &mut dyn Session) -> Result<usize> {
         let items = session.items().to_vec();
         let cutoff = items.len().saturating_sub(self.preserve_recent);
-        let placeholder = "[Result cleared — re-run tool if needed]";
+        let placeholder = "[Result cleared - re-run tool if needed]";
         let mut freed = 0;
         for (i, item) in items.iter().enumerate() {
             if i >= cutoff {
@@ -83,9 +83,9 @@ impl ProcedureHandler for AutoCompactionProcedure {
         if used <= limit {
             return Ok(());
         }
-        // First, clear old tool results — cheap, no model call.
+        // First, clear old tool results - cheap, no model call.
         let freed = self.clear_old_tool_results(ctx.session_mut())?;
-        // If that did not reclaim enough, summarize old messages — costs a model call.
+        // If that did not reclaim enough, summarize old messages - costs a model call.
         if used.saturating_sub(freed) > limit {
             self.summarize_old_messages(ctx).await?;
         }
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(reply.text_content(), "final");
         let items = agent.session().items();
         // Clearing the 800-char tool result drops usage below threshold, so no
-        // summary is produced — every item is still a plain message.
+        // summary is produced - every item is still a plain message.
         assert!(items.iter().all(|i| matches!(i, MemoryItem::Message(_))));
         // The old tool result was cleared in place (and marked as a
         // compaction artifact).

@@ -7,7 +7,7 @@
 //! provider/model plus optional per-agent overrides, custom provider
 //! definitions, and model extensions.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
@@ -40,7 +40,7 @@ pub struct MemoryConfig {
     pub enabled: bool,
     /// Embedding model for semantic recall as `"provider/model-id"`
     /// (e.g. `"openai/text-embedding-3-small"`). `None` means keyword-only
-    /// recall — no embedding API calls are ever made.
+    /// recall - no embedding API calls are ever made.
     ///
     /// Vectors are tied to the embedder that produced them: changing this
     /// demotes existing memories to keyword-only recall (they are not
@@ -65,6 +65,53 @@ impl Default for MemoryConfig {
     }
 }
 
+/// User override for how a model's reasoning is controlled, layered on top of
+/// the catalog's reasoning flag and dialect. Plain data - no `shirl-llm`
+/// dependency - so `shirl-cli` merges it with the catalog into a
+/// `shirl_llm::ReasoningSettings` at model-build time.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ReasoningPref {
+    /// Force reasoning on (`Some(true)`) or off (`Some(false)`); `None` defers
+    /// to the catalog's reasoning flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// Reasoning effort level (e.g. `"low"`/`"medium"`/`"high"`/`"none"`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    /// Thinking-token budget.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_tokens: Option<u32>,
+}
+
+/// User-set sampling / generation parameters, layered on top of the model's
+/// own defaults. Plain data - no `shirl-llm`/`sweet-llm` dependency - so
+/// `shirl-cli` maps it into a `sweet_llm::SamplingConfig` at model-build time.
+/// Every field is optional: an absent field is not sent, so the model applies
+/// its own default.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SamplingPref {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stop: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<usize>,
+    /// Arbitrary provider-specific fields merged verbatim into the request body
+    /// (an escape hatch), e.g. `logit_bias`, `safetySettings`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub options: BTreeMap<String, serde_json::Value>,
+}
+
 /// Provider + model pair for a single agent.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AgentModelConfig {
@@ -76,6 +123,14 @@ pub struct AgentModelConfig {
     /// The API key must exist in `[web_search]` section of auth.toml.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search: Option<String>,
+    /// Per-agent reasoning override. When absent, the catalog's reasoning flag
+    /// and dialect drive the default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<ReasoningPref>,
+    /// Per-agent sampling override. When absent, no sampling params are sent and
+    /// the model uses its own defaults.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling: Option<SamplingPref>,
 }
 
 /// A user-defined provider declared in `config.toml` under `[providers.*]`.
@@ -102,11 +157,10 @@ pub struct ModelExtension {
 }
 
 impl ShirlConfig {
-    /// Path to the default config file: `~/.shirl/config.toml`.
+    /// Path to the default config file: `<config_home>/config.toml`
+    /// (`~/.shirl/config.toml` by default).
     pub fn default_path() -> Result<PathBuf> {
-        let home =
-            dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))?;
-        Ok(home.join(".shirl").join("config.toml"))
+        Ok(crate::paths::config_home()?.join("config.toml"))
     }
 
     /// Load config from `path`.  Returns `Ok(None)` when the file does not
@@ -163,6 +217,48 @@ impl ShirlConfig {
             .or(self.default.web_search.as_deref())
     }
 
+    /// Resolve the effective reasoning override for an agent kind, falling back
+    /// to the default. Returns `None` when neither sets one.
+    pub fn reasoning_for(&self, agent: &str) -> Option<&ReasoningPref> {
+        self.agents
+            .get(agent)
+            .and_then(|a| a.reasoning.as_ref())
+            .or(self.default.reasoning.as_ref())
+    }
+
+    /// Set (or clear with `None`) the reasoning override for an agent kind.
+    ///
+    /// `"main"` writes the default entry; other agents write their own override,
+    /// inheriting the default provider/model when no agent entry exists yet.
+    pub fn set_reasoning(&mut self, agent: &str, pref: Option<ReasoningPref>) {
+        if agent == "main" {
+            self.default.reasoning = pref;
+            return;
+        }
+        let provider = self.provider_for(agent).to_string();
+        let model = self.model_for(agent).to_string();
+        let entry = self
+            .agents
+            .entry(agent.to_string())
+            .or_insert_with(|| AgentModelConfig {
+                provider,
+                model,
+                web_search: None,
+                reasoning: None,
+                sampling: None,
+            });
+        entry.reasoning = pref;
+    }
+
+    /// Resolve the effective sampling override for an agent kind, falling back
+    /// to the default. Returns `None` when neither sets one.
+    pub fn sampling_for(&self, agent: &str) -> Option<&SamplingPref> {
+        self.agents
+            .get(agent)
+            .and_then(|a| a.sampling.as_ref())
+            .or(self.default.sampling.as_ref())
+    }
+
     /// Update the config for a specific agent kind.
     pub fn set_agent_model(
         &mut self,
@@ -171,12 +267,16 @@ impl ShirlConfig {
         model: impl Into<String>,
     ) {
         let web_search = self.agents.get(agent).and_then(|a| a.web_search.clone());
+        let reasoning = self.agents.get(agent).and_then(|a| a.reasoning.clone());
+        let sampling = self.agents.get(agent).and_then(|a| a.sampling.clone());
         self.agents.insert(
             agent.to_string(),
             AgentModelConfig {
                 provider: provider.into(),
                 model: model.into(),
                 web_search,
+                reasoning,
+                sampling,
             },
         );
     }
@@ -184,10 +284,14 @@ impl ShirlConfig {
     /// Update the default config.
     pub fn set_default(&mut self, provider: impl Into<String>, model: impl Into<String>) {
         let web_search = self.default.web_search.take();
+        let reasoning = self.default.reasoning.take();
+        let sampling = self.default.sampling.take();
         self.default = AgentModelConfig {
             provider: provider.into(),
             model: model.into(),
             web_search,
+            reasoning,
+            sampling,
         };
     }
 }
@@ -219,6 +323,81 @@ mod tests {
         assert_eq!(loaded.default.model, "claude-sonnet-4-20250514");
         assert_eq!(loaded.provider_for("plan"), "openai");
         assert_eq!(loaded.model_for("plan"), "gpt-4o");
+    }
+
+    #[test]
+    fn reasoning_pref_round_trips_through_toml() {
+        let config = ShirlConfig {
+            default: AgentModelConfig {
+                provider: "cerebras".to_string(),
+                model: "gpt-oss-120b".to_string(),
+                web_search: None,
+                reasoning: Some(ReasoningPref {
+                    enabled: Some(true),
+                    effort: Some("high".to_string()),
+                    budget_tokens: None,
+                }),
+                sampling: None,
+            },
+            ..Default::default()
+        };
+
+        let toml = toml::to_string(&config).unwrap();
+        let parsed: ShirlConfig = toml::from_str(&toml).unwrap();
+        let reasoning = parsed.default.reasoning.expect("reasoning preserved");
+        assert_eq!(reasoning.enabled, Some(true));
+        assert_eq!(reasoning.effort.as_deref(), Some("high"));
+        assert_eq!(reasoning.budget_tokens, None);
+    }
+
+    #[test]
+    fn sampling_pref_round_trips_through_toml() {
+        let mut options = BTreeMap::new();
+        options.insert(
+            "logit_bias".to_string(),
+            serde_json::json!({ "50256": -100 }),
+        );
+        let mut config = ShirlConfig::default();
+        config.set_default("openai", "gpt-4o");
+        // Sampling is config-only (no runtime setter); set the field directly.
+        config.default.sampling = Some(SamplingPref {
+            temperature: Some(0.5),
+            top_p: Some(0.25),
+            stop: vec!["END".to_string()],
+            max_tokens: Some(2048),
+            options,
+            ..Default::default()
+        });
+
+        let toml = toml::to_string(&config).unwrap();
+        let parsed: ShirlConfig = toml::from_str(&toml).unwrap();
+        let sampling = parsed.sampling_for("main").expect("sampling preserved");
+        assert_eq!(sampling.temperature, Some(0.5));
+        assert_eq!(sampling.top_p, Some(0.25));
+        assert_eq!(sampling.stop, vec!["END".to_string()]);
+        assert_eq!(sampling.max_tokens, Some(2048));
+        assert_eq!(
+            sampling.options.get("logit_bias"),
+            Some(&serde_json::json!({ "50256": -100 }))
+        );
+    }
+
+    #[test]
+    fn sampling_pref_absent_by_default() {
+        let toml = toml::to_string(&ShirlConfig::default()).unwrap();
+        assert!(
+            !toml.contains("sampling"),
+            "default config should not serialize a sampling section: {toml}"
+        );
+    }
+
+    #[test]
+    fn reasoning_pref_absent_by_default() {
+        let toml = toml::to_string(&ShirlConfig::default()).unwrap();
+        assert!(
+            !toml.contains("reasoning"),
+            "default config should not serialize a reasoning section: {toml}"
+        );
     }
 
     #[test]
@@ -265,10 +444,12 @@ mod tests {
             provider: "openai".to_string(),
             model: "gpt-4o".to_string(),
             web_search: Some("brave".to_string()),
+            reasoning: None,
+            sampling: None,
         };
         config.agents.insert("plan".to_string(), plan);
         assert_eq!(config.web_search_for("plan"), Some("brave"));
-        // "review" has no override — falls back to default.
+        // "review" has no override - falls back to default.
         assert_eq!(config.web_search_for("review"), Some("tavily"));
     }
 

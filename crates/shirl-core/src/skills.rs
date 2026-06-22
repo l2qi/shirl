@@ -27,7 +27,7 @@ use sweet_agent::{Capability, CapabilityProvider, PromptSpec};
 const SKILL_FILE: &str = "SKILL.md";
 const RESOURCE_DIRS: [&str; 3] = ["scripts", "references", "assets"];
 
-/// A discovered skill. Internal to this module — consumers see only the
+/// A discovered skill. Internal to this module - consumers see only the
 /// capabilities `SkillsProvider` produces, not the skills themselves.
 struct Skill {
     name: String,
@@ -50,7 +50,7 @@ impl SkillsProvider {
     /// relative to the process CWD.
     pub fn load() -> Self {
         let start = std::env::current_dir().ok();
-        let user_dir = dirs::home_dir().map(|h| h.join(".shirl").join("skills"));
+        let user_dir = crate::paths::config_home().ok().map(|h| h.join("skills"));
         Self::load_from(user_dir.as_deref(), start.as_deref())
     }
 
@@ -153,9 +153,9 @@ fn parse_skill(skill_dir: &Path) -> Option<Skill> {
             };
             let key = key.trim();
             let value = value.trim();
-            // A YAML block scalar (`>`, `>-`, `|`, `|-`, …) carries its value
+            // A YAML block scalar (`>`, `>-`, `|`, `|-`, ...) carries its value
             // on the following indented lines, not after the colon. Fold those
-            // continuation lines into the value (joined with spaces — adequate
+            // continuation lines into the value (joined with spaces - adequate
             // for the single-line metadata fields skills use).
             let resolved = if value.starts_with('>') || value.starts_with('|') {
                 let (folded, consumed) = fold_block_scalar(&lines[i + 1..]);
@@ -181,7 +181,7 @@ fn parse_skill(skill_dir: &Path) -> Option<Skill> {
 
     let description = description.or_else(|| first_description_line(&body));
     let Some(description) = description else {
-        eprintln!("shirl: skipping skill '{name}' — no description in frontmatter or body");
+        eprintln!("shirl: skipping skill '{name}' - no description in frontmatter or body");
         return None;
     };
 
@@ -276,7 +276,7 @@ fn enumerate_resources(skill_dir: &Path) -> Vec<String> {
 
 fn format_catalog(skills: &[&Skill]) -> String {
     let mut out = String::from(
-        "Available skills — when a task matches a skill's description, read its SKILL.md to load \
+        "Available skills - when a task matches a skill's description, read its SKILL.md to load \
 full instructions; resolve resource paths against the skill's directory:\n",
     );
     for skill in skills {

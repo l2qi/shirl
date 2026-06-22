@@ -35,7 +35,7 @@ const EXPLORE_PROMPT: &str = "You are an exploration subagent. Given a question 
     - Cite file paths and line numbers when referencing specific code\n\
     - For symbol queries, distinguish definitions from usages and group results by file\n\
     - If you cannot find a definitive answer, say so and report what you did find\n\
-    - Keep the summary focused on the question asked — avoid tangential information";
+    - Keep the summary focused on the question asked - avoid tangential information";
 
 #[derive(Deserialize, JsonSchema)]
 struct ExploreInput {

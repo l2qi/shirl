@@ -93,17 +93,16 @@ impl Session for PersistedSession {
 }
 
 fn default_base() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| {
-        SessionError::storage(std::io::Error::other("could not determine home directory"))
-    })?;
-    Ok(home.join(".shirl"))
+    crate::paths::config_home()
+        .map_err(|e| SessionError::storage(std::io::Error::other(e.to_string())))
+        .map_err(Into::into)
 }
 
 /// Root holding every session's on-disk artifacts: `~/.shirl/sessions/`.
 ///
 /// Used as a sandbox read root so the agent can read back plan/review files
 /// across a `/new` (which rotates the session id) without re-exposing the rest
-/// of `~/.shirl` — notably `auth.toml`, which lives outside this directory.
+/// of `~/.shirl` - notably `auth.toml`, which lives outside this directory.
 pub fn sessions_root() -> Result<PathBuf> {
     Ok(default_base()?.join("sessions"))
 }

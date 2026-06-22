@@ -110,10 +110,14 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     let resume_id = cli_args.resume.clone();
     let config_path = ShirlConfig::default_path()?;
     let auth_path = shirl_core::AuthStore::default_path()?;
+    // Display brand and on-disk dir name both derive from the one config-dir
+    // source of truth (`~/.shirl` by default), so a fork that calls
+    // `set_config_dir_name` gets a matching brand and matching paths.
+    let brand = shirl_core::config_dir_name().trim_start_matches('.');
 
     // Garbage-collect old clipboard pastes. Best-effort: any error here is
     // ignored so a broken or unreadable cache dir never blocks startup.
-    if let Some(dir) = shirl_ui::clipboard_image::default_cache_dir() {
+    if let Some(dir) = shirl_ui::clipboard_image::default_cache_dir(brand) {
         let _ = shirl_ui::clipboard_image::sweep_dir(
             &dir,
             std::time::Duration::from_secs(7 * 24 * 60 * 60),
@@ -124,8 +128,10 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
 
     let (cmd_tx, mut cmd_rx) = tokio::sync::mpsc::channel(16);
     let io = Arc::new(Mutex::new(ReplIo::new(
+        brand.to_string(),
         "not configured".to_string(),
         None,
+        shirl_ui::default_history_path(brand),
         cmd_tx.clone(),
     )?));
     let (shared_io, mut approval_rx) = SharedIo::new(io.clone());
@@ -134,7 +140,8 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     // A catalog fetch failure with no cache is non-fatal: shirl still starts,
     // and custom providers defined in config.toml remain usable.
     let http = reqwest::Client::new();
-    let catalog = match Catalog::load(&http).await {
+    let cache_dir = shirl_core::config_home()?.join("cache");
+    let catalog = match Catalog::load(&http, &cache_dir).await {
         Ok(c) => c,
         Err(e) => {
             let mut io_guard = io.lock().await;
@@ -224,12 +231,12 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
     let sandbox: Arc<dyn Sandbox> = if sandbox_enabled {
         match OsSandbox::new(
             std::env::current_dir()
-                .context("current directory does not exist — cd into a valid directory first")?,
+                .context("current directory does not exist - cd into a valid directory first")?,
             cli_args.sandbox_policy,
             // Let the agent read back plan/review files under ~/.shirl/sessions.
             tracking::sandbox_read_roots(),
-            // Hide ~/.shirl (auth.toml holds API keys) from the sandbox.
-            vec![".shirl".to_string()],
+            // Hide the config home (auth.toml holds API keys) from the sandbox.
+            vec![shirl_core::config_dir_name().to_string()],
         ) {
             Ok(s) => Arc::new(s),
             Err(e) => {
@@ -251,7 +258,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
         let store = models.lock().await;
         store
             .get(AgentKind::Main)
-            .context("no model configured for main agent — run /model to set one")?
+            .context("no model configured for main agent - run /model to set one")?
     };
 
     let session_id = session.id().clone();
@@ -450,7 +457,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                     match result {
                         Ok(Ok(turn_result)) => {
                             match turn_result {
-                                TurnResult::Message(_) => {
+                                TurnResult::Message(ref msg) => {
                                     // End the turn and capture the session id
                                     // so we can decide whether to title.
                                     let current_session_id = {
@@ -458,10 +465,17 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                                         let agent_guard = agent.lock().await;
                                         let session = agent_guard.session();
                                         io_guard.on_turn_end(session).await?;
+                                        if let Some(w) = msg
+                                            .finish_reason
+                                            .as_ref()
+                                            .and_then(turn::finish_reason_warning)
+                                        {
+                                            io_guard.insert_lines(&[w])?;
+                                        }
                                         session.id().clone()
                                     };
 
-                                    // Cadence-gated background distill pass —
+                                    // Cadence-gated background distill pass -
                                     // replaces the in-turn AfterTurn procedure
                                     // so the UI never waits on it.
                                     if let Some(wiring) = memory_wiring.as_ref() {
@@ -609,7 +623,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                             turn::cycle_permission_mode(&permission_handle, &shared_io, sandbox_enabled, &sandbox_warning_shown).await?;
                         }
                         Some(Command::ToggleTranscript) => {
-                            // Swallow — transcript view is only available when idle.
+                            // Swallow - transcript view is only available when idle.
                             // Opening during a turn causes an abrupt switch
                             // when the handle resolves and the main loop
                             // re-enters Phase 1.
@@ -640,7 +654,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
                             turn::cancel_turn(&agent, &shared_io, &mut model_handle).await?;
                         }
                     }
-                    // None: channel closed — agent task gone, nothing to do.
+                    // None: channel closed - agent task gone, nothing to do.
                 }
             }
         } else {

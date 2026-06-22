@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use shirl_core::AuthStore;
 use tokio::sync::Mutex;
 
@@ -19,8 +19,7 @@ pub(crate) fn flatten_mcp_specs(providers: &[sweet_mcp::McpProvider]) -> Vec<swe
 }
 
 fn mcp_config_path() -> Result<std::path::PathBuf> {
-    let home = dirs::home_dir().context("cannot determine home directory")?;
-    Ok(home.join(".shirl").join("mcp.json"))
+    Ok(shirl_core::config_home()?.join("mcp.json"))
 }
 
 /// Per-server cap on the MCP connection handshake (transport + tool listing).
@@ -51,7 +50,7 @@ async fn connect_mcp_servers(
         }
 
         if !server.is_stdio() && !server.is_http() {
-            status.push(format!("MCP: skipping '{name}' — no `command` or `url`"));
+            status.push(format!("MCP: skipping '{name}' - no `command` or `url`"));
             continue;
         }
 
@@ -86,7 +85,7 @@ async fn connect_mcp_servers(
             }
             Err(_) => {
                 status.push(format!(
-                    "MCP: skipping '{name}' — connection timed out after {}s",
+                    "MCP: skipping '{name}' - connection timed out after {}s",
                     MCP_CONNECT_TIMEOUT.as_secs()
                 ));
             }
@@ -106,7 +105,7 @@ pub(crate) async fn load_mcp_providers(
         Ok(p) => p,
         Err(e) => {
             let mut guard = io.lock().await;
-            let _ = guard.insert_lines(&[format!("MCP: skipping – {e}")]);
+            let _ = guard.insert_lines(&[format!("MCP: skipping - {e}")]);
             return vec![];
         }
     };
@@ -144,7 +143,7 @@ pub(crate) async fn load_mcp_providers_headless(auth: &AuthStore) -> Vec<sweet_m
     let path = match mcp_config_path() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("MCP: skipping – {e}");
+            eprintln!("MCP: skipping - {e}");
             return vec![];
         }
     };

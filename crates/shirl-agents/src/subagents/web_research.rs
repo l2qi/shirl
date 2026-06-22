@@ -30,7 +30,7 @@ const FETCH_ONLY_PROMPT: &str =
     documentation, or APIs and return a concise answer.\n\
     \n\
     Guidelines:\n\
-    - You can ONLY fetch URLs provided in the prompt — you cannot search the open web\n\
+    - You can ONLY fetch URLs provided in the prompt - you cannot search the open web\n\
     - If the prompt contains a URL, fetch it directly and extract the relevant information\n\
     - If the prompt only contains a question with no URL, say so and ask the caller to provide one\n\
     - Cite the source URL(s) you fetched in your answer\n\

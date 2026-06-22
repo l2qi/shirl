@@ -11,7 +11,7 @@ use sweet_core::Model;
 /// Returns `Ok(Some(title))` on success, `Ok(None)` when the conversation is
 /// too short to title or the model reply sanitizes to an empty string.
 ///
-/// Pure compute — no UI state is touched, so callers can spawn this without
+/// Pure compute - no UI state is touched, so callers can spawn this without
 /// holding the IO mutex across the model round-trip.
 pub async fn compute_title(
     model: &Arc<dyn Model>,
@@ -66,7 +66,7 @@ pub(crate) fn sanitize_title(raw: &str) -> String {
 /// Returns `None` if `git` is unavailable, the directory is not a repo,
 /// or HEAD is detached.
 ///
-/// Shells out to `git` synchronously — call only at startup or in response
+/// Shells out to `git` synchronously - call only at startup or in response
 /// to explicit user action, never in a hot loop.
 pub(crate) fn detect_git_branch(cwd: &str) -> Option<String> {
     let output = std::process::Command::new("git")
@@ -78,7 +78,7 @@ pub(crate) fn detect_git_branch(cwd: &str) -> Option<String> {
         return None;
     }
     let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    // "HEAD" means detached HEAD — nothing useful to display.
+    // "HEAD" means detached HEAD - nothing useful to display.
     if branch.is_empty() || branch == "HEAD" {
         return None;
     }

@@ -242,7 +242,7 @@ impl HandoffHandler for PassthroughHandoff {
 pub(crate) fn handoff_to_plan() -> HandoffSpec {
     HandoffSpec::new(
         "transfer_to_plan",
-        "Hand off to the planning agent. MUST be your FIRST action (before reading files or running any other tool) when the user uses 'plan' or 'design' as a verb directed at a task — e.g., 'plan how to add X', 'plan this refactor', 'design this change'. May also be called when a task is clearly multi-file and would benefit from upfront design (announce the switch in one sentence first). Do NOT use when the user references an existing plan as a noun ('here is the plan, please implement it'), or for tasks you can implement directly.",
+        "Hand off to the planning agent. MUST be your FIRST action (before reading files or running any other tool) when the user uses 'plan' or 'design' as a verb directed at a task - e.g., 'plan how to add X', 'plan this refactor', 'design this change'. May also be called when a task is clearly multi-file and would benefit from upfront design (announce the switch in one sentence first). Do NOT use when the user references an existing plan as a noun ('here is the plan, please implement it'), or for tasks you can implement directly.",
         serde_json::json!({
             "type": "object",
             "properties": {
@@ -263,7 +263,7 @@ pub(crate) fn handoff_to_plan() -> HandoffSpec {
 pub(crate) fn handoff_to_review() -> HandoffSpec {
     HandoffSpec::new(
         "transfer_to_review",
-        "Hand off to the code review agent. MUST be your FIRST action (before reading files, running git, or invoking any other tool) when the user uses 'review' or 'audit' as a verb directed at code, files, changes, a diff, or a module — e.g., 'review this', 'review the changes', 'review the diff', 'audit the auth module'. Pass the user's request as the `focus` argument. Do NOT use when the user references existing review content as a noun ('look at the review feedback below'), or for ad-hoc inspection during normal coding.",
+        "Hand off to the code review agent. MUST be your FIRST action (before reading files, running git, or invoking any other tool) when the user uses 'review' or 'audit' as a verb directed at code, files, changes, a diff, or a module - e.g., 'review this', 'review the changes', 'review the diff', 'audit the auth module'. Pass the user's request as the `focus` argument. Do NOT use when the user references existing review content as a noun ('look at the review feedback below'), or for ad-hoc inspection during normal coding.",
         serde_json::json!({
             "type": "object",
             "properties": {

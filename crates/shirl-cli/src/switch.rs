@@ -10,15 +10,16 @@ use tokio::task::JoinHandle;
 use crate::mcp;
 use crate::model::resolve_web_search;
 use crate::RuntimeCtx;
+use shirl_core::ReasoningPref;
 use shirl_llm::factory::build_model;
 use std::sync::Arc;
 
-/// Build a fresh agent: resolve web search → build → auto-compaction →
-/// media-strip → tracker.
+/// Build a fresh agent: resolve web search -> build -> auto-compaction ->
+/// media-strip -> tracker.
 ///
 /// Called from both [`apply_mode_switch`] and [`apply_model_switch`].
 /// The returned agent still needs its permission handle set by the caller
-/// under the agent mutex — this function performs **no** async work while
+/// under the agent mutex - this function performs **no** async work while
 /// holding any lock.
 async fn rebuild_agent(
     ctx: &RuntimeCtx<'_>,
@@ -77,7 +78,7 @@ pub(crate) async fn apply_mode_switch(
         let session_id = session.id().to_owned();
         (session, session_id)
     };
-    // Lock is released here — the async rebuild (resolve_web_search)
+    // Lock is released here - the async rebuild (resolve_web_search)
     // runs without blocking other tasks that need ctx.agent.
 
     // Entering Main from Plan/Review with a directive means a report is being
@@ -139,7 +140,7 @@ pub(crate) async fn apply_mode_switch(
     io_guard.set_context_window(context_window)?;
     io_guard.set_model(model_name)?;
     io_guard.insert_lines(&[format!(
-        "→ switched to {} mode",
+        "-> switched to {} mode",
         switch.target.display_name()
     )])?;
     drop(io_guard);
@@ -149,7 +150,13 @@ pub(crate) async fn apply_mode_switch(
     Ok(())
 }
 
-pub(crate) async fn apply_model_switch(
+/// Rebuild the active agent's model from its **current** config (provider,
+/// model, and any reasoning override), store it, and swap in a fresh agent. The
+/// shared tail of both `/model` (which first changes provider/model) and
+/// `/reasoning` (which first changes the reasoning override). Updates the status
+/// line's context window and model name, but prints no scrollback message -
+/// callers add their own.
+pub(crate) async fn rebuild_active_model(
     provider_id: &str,
     model_id: &str,
     ctx: &RuntimeCtx<'_>,
@@ -161,11 +168,23 @@ pub(crate) async fn apply_model_switch(
         base_url,
         api_key,
         context_window,
+        max_output_tokens,
         reasoning,
+        sampling,
     } = {
         let config = ctx.config.lock().await;
         let auth = ctx.auth.lock().await;
-        crate::model::resolve_provider_params(provider_id, &config, &auth, ctx.catalog, model_id)?
+        let pref = config.reasoning_for(active_agent.display_name());
+        let sampling_pref = config.sampling_for(active_agent.display_name());
+        crate::model::resolve_provider_params(
+            provider_id,
+            &config,
+            &auth,
+            ctx.catalog,
+            model_id,
+            pref,
+            sampling_pref,
+        )?
     };
 
     let model = build_model(
@@ -174,7 +193,9 @@ pub(crate) async fn apply_model_switch(
         &base_url,
         &api_key,
         context_window,
-        reasoning,
+        max_output_tokens,
+        &reasoning,
+        &sampling,
     )?;
     let full_name = format!("{}/{}", provider_id, model_id);
 
@@ -186,17 +207,6 @@ pub(crate) async fn apply_model_switch(
             full_name.clone(),
             context_window,
         );
-    }
-
-    {
-        let mut config = ctx.config.lock().await;
-        match active_agent {
-            AgentKind::Main => config.set_default(provider_id, model_id),
-            AgentKind::Plan => config.set_agent_model("plan", provider_id, model_id),
-            AgentKind::Review => config.set_agent_model("review", provider_id, model_id),
-        }
-        let config_path = shirl_core::ShirlConfig::default_path()?;
-        config.save(&config_path)?;
     }
 
     if let Some(h) = model_handle.take() {
@@ -221,6 +231,55 @@ pub(crate) async fn apply_model_switch(
     let mut io_guard = ctx.shared_io.lock().await;
     io_guard.set_context_window(context_window)?;
     io_guard.set_model(full_name)?;
+    Ok(())
+}
+
+pub(crate) async fn apply_model_switch(
+    provider_id: &str,
+    model_id: &str,
+    ctx: &RuntimeCtx<'_>,
+    active_agent: AgentKind,
+    model_handle: &mut Option<JoinHandle<sweet_core::Result<sweet_agent::TurnResult>>>,
+) -> Result<()> {
+    {
+        let mut config = ctx.config.lock().await;
+        match active_agent {
+            AgentKind::Main => config.set_default(provider_id, model_id),
+            AgentKind::Plan => config.set_agent_model("plan", provider_id, model_id),
+            AgentKind::Review => config.set_agent_model("review", provider_id, model_id),
+        }
+        let config_path = shirl_core::ShirlConfig::default_path()?;
+        config.save(&config_path)?;
+    }
+
+    rebuild_active_model(provider_id, model_id, ctx, active_agent, model_handle).await?;
+
+    let mut io_guard = ctx.shared_io.lock().await;
     io_guard.insert_lines(&[format!("⏺ Switched to {}/{}", provider_id, model_id)])?;
     Ok(())
+}
+
+/// Apply a `/reasoning` change: persist the override for the active agent, then
+/// rebuild its model in place. The new model picks up the override via
+/// [`rebuild_active_model`]. Returns the resolved `provider/model` for the
+/// caller's status line.
+pub(crate) async fn apply_reasoning_switch(
+    pref: Option<ReasoningPref>,
+    ctx: &RuntimeCtx<'_>,
+    active_agent: AgentKind,
+    model_handle: &mut Option<JoinHandle<sweet_core::Result<sweet_agent::TurnResult>>>,
+) -> Result<()> {
+    let (provider_id, model_id) = {
+        let mut config = ctx.config.lock().await;
+        let agent = active_agent.display_name();
+        config.set_reasoning(agent, pref);
+        let config_path = shirl_core::ShirlConfig::default_path()?;
+        config.save(&config_path)?;
+        (
+            config.provider_for(agent).to_string(),
+            config.model_for(agent).to_string(),
+        )
+    };
+
+    rebuild_active_model(&provider_id, &model_id, ctx, active_agent, model_handle).await
 }

@@ -53,7 +53,7 @@ pub(crate) fn handle_paste_image(io: &mut crate::ReplIo) {
         }
     };
 
-    let Some(dir) = crate::clipboard_image::default_cache_dir() else {
+    let Some(dir) = crate::clipboard_image::default_cache_dir(&io.brand()) else {
         warn(io, "⚠ Could not resolve clipboard cache dir");
         return;
     };
