@@ -148,19 +148,20 @@ cargo doc --workspace --no-deps --all-features
 
 ### shirl-core
 
-Public surface: `PersistedSession`, `CodingAgent`, `ShirlConfig`, `MemoryConfig`, `AgentsMd`, `CustomCommandsProvider`, `SkillsProvider`, `PlanTracker`, `session_dir`, `memory` module (`open_store`, `user_scope`, `project_scope`, `memory_db_path`).
+Public surface: `PersistedSession`, `CodingAgent`, `ShirlConfig`, `MemoryConfig`, `ReasoningPref`, `SamplingPref`, `AgentsMd`, `CustomCommandsProvider`, `SkillsProvider`, `PlanTracker`, `session_dir`, `memory` module (`open_store`, `user_scope`, `project_scope`, `memory_db_path`), `paths` module (`config_home`, `config_dir_name`, `set_config_dir_name`).
 
 - `PersistedSession` - SQLite-backed session at `~/.shirl/sessions/<id>/session.db`
 - `CodingAgent` - wraps `sweet_agent::Agent` with auto-compaction hook
 - `PlanTracker` - durable workflow state; exposes `dynamic_prompt()` and `write_todos_tool()`
 - `session_dir(id)` - resolves `~/.shirl/sessions/<id>/`
+- `paths` - single source of truth for the config home (`~/.shirl` by default); `ReasoningPref`/`SamplingPref` are plain-data per-agent overrides merged into the model build by `shirl-cli`
 
 ### shirl-llm
 
-Public surface: `Catalog`, `CatalogProvider`, `CatalogModel`, `Protocol`, `build_model`, `build_embedder`.
+Public surface: `Catalog`, `CatalogProvider`, `CatalogModel`, `Protocol`, `ReasoningOption`, `ReasoningSettings`, `SamplingConfig`, `build_model`, `build_embedder`, `can_disable_reasoning`.
 
-- `catalog` - fetch, parse, and cache models.dev provider/model catalog
-- `factory` - `build_model` constructs an `Arc<dyn Model>` from a `Protocol`, model id, base URL, and API key
+- `catalog` - fetch, parse, and cache models.dev provider/model catalog; `Protocol` includes `Cerebras`, and `ReasoningOption` mirrors the models.dev `reasoning_options` dialects (toggle / effort / budget)
+- `factory` - `build_model` constructs an `Arc<dyn Model>` from a `Protocol`, model id, base URL, and API key, plus the dialect-correct reasoning (`ReasoningSettings`) and `SamplingConfig`; `can_disable_reasoning` is the shared predicate for whether reasoning has an off-switch
 
 ### shirl-tools
 
@@ -170,7 +171,7 @@ All tools use the factory pattern, taking `Arc<dyn Filesystem>` or `Arc<dyn Comm
 
 ### shirl-ui
 
-Public surface: `ReplIo`, `SharedIo`, `Command`, `PickerEntry`, `PickerSection`, `PickerRenderState`, `StatusInfo`, `compute_title`, `picker_popup_width`, `picker_row_width`, `FileEntry`, `FilePickerState`, `clipboard_image` module.
+Public surface: `ReplIo`, `SharedIo`, `Command`, `PickerEntry`, `PickerSection`, `PickerRenderState`, `StatusInfo`, `compute_title`, `default_history_path`, `picker_popup_width`, `picker_row_width`, `FileEntry`, `FilePickerState`, `clipboard_image` module.
 
 Implements `AgentIo` via `ReplIo` using ratatui's inline viewport mode. Status line pinned at bottom; history appended to scrollback.
 
