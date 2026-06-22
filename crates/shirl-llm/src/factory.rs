@@ -110,6 +110,24 @@ fn plan_reasoning(protocol: Protocol, settings: &ReasoningSettings) -> Option<Re
     if has_toggle {
         return Some(ReasoningConfig::Toggle(true));
     }
+    // A catalog budget dialect is honored directly here and must NOT be changed
+    // to fall through to the `explicit_enable -> Toggle(true)` path below in the
+    // hope of giving Anthropic models adaptive thinking. `Protocol::Anthropic`
+    // covers EVERY models.dev provider whose npm contains "anthropic" - not just
+    // direct Anthropic, but also `google-vertex-anthropic`, `freemodel`, and the
+    // MiniMax / Kimi-via-Anthropic-SDK proxies. `budget_tokens` is accepted by
+    // all of them; `{type: adaptive}` is valid only on direct-Anthropic Claude
+    // 4.6+. `anthropic_reasoning`'s adaptive detection parses only the
+    // direct-Anthropic id form, so a Vertex id like `claude-sonnet-4@20250514`
+    // (a budget-era 4.0) parses to `None` and would be MISCLASSIFIED as adaptive,
+    // earning an HTTP 400 - the very failure this reasoning dispatch exists to
+    // avoid. Keeping budget-dialect models on `Budget` here confines adaptive
+    // detection to effort-only / toggle-less models (the clean modern
+    // direct-Anthropic ids). The cost - direct-Anthropic 4.6, which also
+    // advertises a budget dialect, getting a min budget instead of adaptive - is
+    // the deliberate safe tradeoff. Don't "fix" it without first making adaptive
+    // provider-aware (i.e. gating it to the `anthropic` provider id, not the
+    // shared protocol). Verified against models.dev 2026-06-22.
     if let Some(min) = budget_min {
         // Gemini enables dynamic thinking via the toggle; others take a budget.
         return Some(match protocol {
@@ -147,6 +165,16 @@ fn anthropic_reasoning(plan: Option<ReasoningConfig>, model_id: &str) -> Option<
 /// dialect. Adaptive is Claude 4.6+ plus the fable/mythos families; 3.7 and
 /// 4.0-4.5 use a budget. models.dev does not encode this, so we recognize it by
 /// model id. Unknown ids default to adaptive, the going-forward Anthropic shape.
+///
+/// This parser assumes the *direct-Anthropic* id form (`claude-<fam>-<maj>-<min>`).
+/// It is deliberately only reached for effort-only / toggle-less models, because
+/// `plan_reasoning` routes any budget-dialect model straight to `Budget` first
+/// (see the note there). That guard matters: other `Protocol::Anthropic`
+/// providers use id forms this can't parse - e.g. Vertex's
+/// `claude-sonnet-4@20250514` yields `None` and would be wrongly treated as
+/// adaptive - so adaptive must never be the fallback for those. Don't relax the
+/// budget guard to widen what reaches here without making adaptive
+/// provider-aware.
 fn anthropic_uses_adaptive_thinking(model_id: &str) -> bool {
     if model_id.contains("fable") || model_id.contains("mythos") {
         return true;
