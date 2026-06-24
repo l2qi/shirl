@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use shirl_core::{AuthStore, ReasoningPref, SamplingPref, ShirlConfig};
-use shirl_llm::catalog::{Catalog, Protocol, ReasoningOption, ReasoningReplay};
+use shirl_llm::catalog::{Catalog, CatalogModel, Protocol, ReasoningOption, ReasoningReplay};
 use shirl_llm::factory::{build_model, ReasoningSettings};
 use shirl_llm::SamplingConfig;
 use sweet_core::Model;
@@ -129,11 +129,24 @@ fn lookup_reasoning_replay(
     provider_id: &str,
     model_id: &str,
 ) -> ReasoningReplay {
-    catalog
-        .get_provider(provider_id)
-        .and_then(|p| p.models.iter().find(|m| m.id == model_id))
+    find_model(catalog, provider_id, model_id)
         .map(|m| m.reasoning_replay)
         .unwrap_or(ReasoningReplay::Omit)
+}
+
+/// Find a catalog model by provider + model id. The single place the
+/// `get_provider` -> `find by id` walk lives; the per-field `lookup_*` helpers
+/// (and `turn::attachment_check`) build on it.
+pub(crate) fn find_model<'a>(
+    catalog: &'a Catalog,
+    provider_id: &str,
+    model_id: &str,
+) -> Option<&'a CatalogModel> {
+    catalog
+        .get_provider(provider_id)?
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
 }
 
 /// Map a config [`SamplingPref`] into the provider-facing [`SamplingConfig`].
@@ -174,12 +187,7 @@ fn lookup_context_window(
     if let Some(cw) = lookup_context_window_from_extensions(config, provider_id, model_id) {
         return Some(cw);
     }
-    catalog
-        .get_provider(provider_id)?
-        .models
-        .iter()
-        .find(|m| m.id == model_id)
-        .and_then(|m| m.context_window)
+    find_model(catalog, provider_id, model_id).and_then(|m| m.context_window)
 }
 
 fn lookup_context_window_from_extensions(
@@ -197,12 +205,7 @@ fn lookup_context_window_from_extensions(
 /// The model's maximum output tokens (models.dev `limit.output`), used to set
 /// the per-model output cap for Anthropic/Gemini.
 fn lookup_max_output_tokens(catalog: &Catalog, provider_id: &str, model_id: &str) -> Option<usize> {
-    catalog
-        .get_provider(provider_id)?
-        .models
-        .iter()
-        .find(|m| m.id == model_id)
-        .and_then(|m| m.max_output_tokens)
+    find_model(catalog, provider_id, model_id).and_then(|m| m.max_output_tokens)
 }
 
 /// The wire protocol for a provider, whether a custom `[providers.*]` entry or a
@@ -225,9 +228,7 @@ pub(crate) fn lookup_reasoning_options(
     provider_id: &str,
     model_id: &str,
 ) -> Vec<ReasoningOption> {
-    catalog
-        .get_provider(provider_id)
-        .and_then(|p| p.models.iter().find(|m| m.id == model_id))
+    find_model(catalog, provider_id, model_id)
         .map(|m| m.reasoning_options.clone())
         .unwrap_or_default()
 }
@@ -255,9 +256,7 @@ fn resolve_reasoning(
     model_id: &str,
     pref: Option<&ReasoningPref>,
 ) -> ReasoningSettings {
-    let model = catalog
-        .get_provider(provider_id)
-        .and_then(|p| p.models.iter().find(|m| m.id == model_id));
+    let model = find_model(catalog, provider_id, model_id);
     let catalog_reasoning = model.map(|m| m.reasoning).unwrap_or(false);
     let options = model
         .map(|m| m.reasoning_options.clone())
