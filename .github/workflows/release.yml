@@ -48,10 +48,10 @@ jobs:
         run: |
           mkdir -p dist
           cp "target/${{ matrix.target }}/dist/shirl" dist/shirl
-          tar -czf "shirl-${{ matrix.target }}.tar.gz" -C dist shirl
+          tar -czf "shirl-${{ github.event.workflow_run.head_branch }}-${{ matrix.target }}.tar.gz" -C dist shirl
 
       - name: Upload release artifact
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.workflow_run.head_branch }}
-          files: shirl-${{ matrix.target }}.tar.gz
+          files: shirl-${{ github.event.workflow_run.head_branch }}-${{ matrix.target }}.tar.gz
