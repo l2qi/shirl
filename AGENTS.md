@@ -158,10 +158,11 @@ Public surface: `PersistedSession`, `CodingAgent`, `ShirlConfig`, `MemoryConfig`
 
 ### shirl-llm
 
-Public surface: `Catalog`, `CatalogProvider`, `CatalogModel`, `Protocol`, `ReasoningOption`, `ReasoningSettings`, `SamplingConfig`, `build_model`, `build_embedder`, `can_disable_reasoning`.
+Public surface: `Catalog`, `CatalogProvider`, `CatalogModel`, `Protocol`, `ReasoningOption`, `ReasoningReplay`, `ReasoningSettings`, `SamplingConfig`, `build_model`, `build_embedder`, `can_disable_reasoning`.
 
-- `catalog` - fetch, parse, and cache models.dev provider/model catalog; `Protocol` includes `Cerebras`, and `ReasoningOption` mirrors the models.dev `reasoning_options` dialects (toggle / effort / budget)
-- `factory` - `build_model` constructs an `Arc<dyn Model>` from a `Protocol`, model id, base URL, and API key, plus the dialect-correct reasoning (`ReasoningSettings`) and `SamplingConfig`; `can_disable_reasoning` is the shared predicate for whether reasoning has an off-switch
+- `catalog` - fetch, parse, and cache models.dev provider/model catalog; `Protocol` includes `Cerebras`, `ReasoningOption` mirrors the models.dev `reasoning_options` dialects (toggle / effort / budget), and `ReasoningReplay` (from the models.dev `interleaved` field) records whether/how a model's prior reasoning must be replayed on the next request (`Omit` / `ReasoningContent` / `Reasoning` / `ReasoningDetails`)
+- `factory` - `build_model` constructs an `Arc<dyn Model>` from a `Protocol`, model id, base URL, and API key, plus the dialect-correct reasoning (`ReasoningSettings`), the per-model `ReasoningReplay` (mapped to `sweet_llm::ReasoningHistoryKey` for OpenAI-protocol providers), and `SamplingConfig`; `can_disable_reasoning` is the shared predicate for whether reasoning has an off-switch
+- **Reasoning-replay default for off-catalog models**: `ReasoningReplay` is only known for models in the models.dev catalog. Custom `[providers.*]` entries (and any model not found in the catalog) default to `Omit` - prior reasoning is not replayed. That is safe for the vast majority of models, but a custom reasoning model that *requires* its prior reasoning echoed back (e.g. a self-hosted Kimi-style model) will lose multi-turn reasoning continuity; route such models through a catalog provider instead.
 
 ### shirl-tools
 
