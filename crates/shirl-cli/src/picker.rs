@@ -3,7 +3,7 @@
 
 use anyhow::{bail, Result};
 use shirl_core::{AuthStore, ShirlConfig};
-use shirl_llm::catalog::{Catalog, CatalogModel, ReasoningOption};
+use shirl_llm::catalog::{Catalog, CatalogModel, ReasoningOption, ReasoningReplay};
 use std::collections::HashMap;
 
 use shirl_ui::{Command, PickerEntry, PickerRenderState, PickerSection, SharedIo};
@@ -370,6 +370,7 @@ async fn populate_model_picker(
                         reasoning: false,
                         vision: false,
                         reasoning_options: Vec::new(),
+                        reasoning_replay: ReasoningReplay::Omit,
                     });
                 }
             }

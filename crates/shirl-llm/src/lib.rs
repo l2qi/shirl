@@ -12,7 +12,9 @@
 pub mod catalog;
 pub mod factory;
 
-pub use catalog::{Catalog, CatalogModel, CatalogProvider, Protocol, ReasoningOption};
+pub use catalog::{
+    Catalog, CatalogModel, CatalogProvider, Protocol, ReasoningOption, ReasoningReplay,
+};
 pub use factory::{build_embedder, build_model, can_disable_reasoning, ReasoningSettings};
 
 /// Re-exported from `sweet-llm` so downstream crates that don't depend on

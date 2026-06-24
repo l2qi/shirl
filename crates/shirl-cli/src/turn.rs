@@ -70,8 +70,7 @@ async fn attachment_check(
         models.name(agent_kind)?
     };
     let (provider_id, model_id) = name.split_once('/')?;
-    let provider = ctx.catalog.get_provider(provider_id)?;
-    let model = provider.models.iter().find(|m| m.id == model_id)?;
+    let model = crate::model::find_model(ctx.catalog, provider_id, model_id)?;
 
     // Only warn about media types that are actually attached. The catalog
     // exposes a `vision` flag for images but no document-support flag yet,

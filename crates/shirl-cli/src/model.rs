@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use shirl_core::{AuthStore, ReasoningPref, SamplingPref, ShirlConfig};
-use shirl_llm::catalog::{Catalog, Protocol, ReasoningOption};
+use shirl_llm::catalog::{Catalog, CatalogModel, Protocol, ReasoningOption, ReasoningReplay};
 use shirl_llm::factory::{build_model, ReasoningSettings};
 use shirl_llm::SamplingConfig;
 use sweet_core::Model;
@@ -71,6 +71,7 @@ pub(crate) struct ResolvedParams {
     pub context_window: Option<usize>,
     pub max_output_tokens: Option<usize>,
     pub reasoning: ReasoningSettings,
+    pub reasoning_replay: ReasoningReplay,
     pub sampling: SamplingConfig,
 }
 
@@ -94,6 +95,9 @@ pub(crate) fn resolve_provider_params(
             context_window,
             max_output_tokens: None,
             reasoning: custom_reasoning_settings(reasoning_pref),
+            // Custom providers have no catalog `interleaved`; default to no
+            // replay (the safe choice for an unknown OpenAI-compatible endpoint).
+            reasoning_replay: ReasoningReplay::Omit,
             sampling: sampling_from_pref(sampling_pref),
         });
     }
@@ -105,6 +109,7 @@ pub(crate) fn resolve_provider_params(
     let context_window = lookup_context_window(catalog, config, provider_id, model_id);
     let max_output_tokens = lookup_max_output_tokens(catalog, provider_id, model_id);
     let reasoning = resolve_reasoning(catalog, provider_id, model_id, reasoning_pref);
+    let reasoning_replay = lookup_reasoning_replay(catalog, provider_id, model_id);
     Ok(ResolvedParams {
         protocol: provider.protocol,
         base_url: provider.base_url.clone(),
@@ -112,8 +117,36 @@ pub(crate) fn resolve_provider_params(
         context_window,
         max_output_tokens,
         reasoning,
+        reasoning_replay,
         sampling: sampling_from_pref(sampling_pref),
     })
+}
+
+/// The model's reasoning-replay choice (models.dev `interleaved`), or `Omit`
+/// when the model is not in the catalog.
+fn lookup_reasoning_replay(
+    catalog: &Catalog,
+    provider_id: &str,
+    model_id: &str,
+) -> ReasoningReplay {
+    find_model(catalog, provider_id, model_id)
+        .map(|m| m.reasoning_replay)
+        .unwrap_or(ReasoningReplay::Omit)
+}
+
+/// Find a catalog model by provider + model id. The single place the
+/// `get_provider` -> `find by id` walk lives; the per-field `lookup_*` helpers
+/// (and `turn::attachment_check`) build on it.
+pub(crate) fn find_model<'a>(
+    catalog: &'a Catalog,
+    provider_id: &str,
+    model_id: &str,
+) -> Option<&'a CatalogModel> {
+    catalog
+        .get_provider(provider_id)?
+        .models
+        .iter()
+        .find(|m| m.id == model_id)
 }
 
 /// Map a config [`SamplingPref`] into the provider-facing [`SamplingConfig`].
@@ -154,12 +187,7 @@ fn lookup_context_window(
     if let Some(cw) = lookup_context_window_from_extensions(config, provider_id, model_id) {
         return Some(cw);
     }
-    catalog
-        .get_provider(provider_id)?
-        .models
-        .iter()
-        .find(|m| m.id == model_id)
-        .and_then(|m| m.context_window)
+    find_model(catalog, provider_id, model_id).and_then(|m| m.context_window)
 }
 
 fn lookup_context_window_from_extensions(
@@ -177,12 +205,7 @@ fn lookup_context_window_from_extensions(
 /// The model's maximum output tokens (models.dev `limit.output`), used to set
 /// the per-model output cap for Anthropic/Gemini.
 fn lookup_max_output_tokens(catalog: &Catalog, provider_id: &str, model_id: &str) -> Option<usize> {
-    catalog
-        .get_provider(provider_id)?
-        .models
-        .iter()
-        .find(|m| m.id == model_id)
-        .and_then(|m| m.max_output_tokens)
+    find_model(catalog, provider_id, model_id).and_then(|m| m.max_output_tokens)
 }
 
 /// The wire protocol for a provider, whether a custom `[providers.*]` entry or a
@@ -205,9 +228,7 @@ pub(crate) fn lookup_reasoning_options(
     provider_id: &str,
     model_id: &str,
 ) -> Vec<ReasoningOption> {
-    catalog
-        .get_provider(provider_id)
-        .and_then(|p| p.models.iter().find(|m| m.id == model_id))
+    find_model(catalog, provider_id, model_id)
         .map(|m| m.reasoning_options.clone())
         .unwrap_or_default()
 }
@@ -235,9 +256,7 @@ fn resolve_reasoning(
     model_id: &str,
     pref: Option<&ReasoningPref>,
 ) -> ReasoningSettings {
-    let model = catalog
-        .get_provider(provider_id)
-        .and_then(|p| p.models.iter().find(|m| m.id == model_id));
+    let model = find_model(catalog, provider_id, model_id);
     let catalog_reasoning = model.map(|m| m.reasoning).unwrap_or(false);
     let options = model
         .map(|m| m.reasoning_options.clone())
@@ -326,6 +345,7 @@ pub(crate) async fn load_agent_model(
         params.context_window,
         params.max_output_tokens,
         &params.reasoning,
+        params.reasoning_replay,
         &params.sampling,
     )?;
     store.insert(

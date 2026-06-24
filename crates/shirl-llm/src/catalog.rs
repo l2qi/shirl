@@ -22,7 +22,7 @@ const CACHE_FILENAME: &str = "models-dev.json";
 /// older shirl (different `schema_version`) is ignored and refetched rather
 /// than silently misinterpreted - e.g. when a provider's protocol mapping or
 /// the set of parsed model fields changes.
-const CATALOG_SCHEMA_VERSION: u32 = 3;
+const CATALOG_SCHEMA_VERSION: u32 = 4;
 
 /// Wire protocol supported by shirl.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -91,6 +91,22 @@ impl ReasoningOption {
     }
 }
 
+/// How a prior assistant turn's reasoning must be replayed on the next request,
+/// from the models.dev `interleaved` field. Maps 1:1 to
+/// `sweet_llm::ReasoningHistoryKey` in the factory.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ReasoningReplay {
+    /// `interleaved` absent - replay nothing (the common, safe case).
+    #[default]
+    Omit,
+    /// `{ "field": "reasoning_content" }` - replay under `reasoning_content`.
+    ReasoningContent,
+    /// `{ "field": "reasoning" }` - replay under `reasoning`.
+    Reasoning,
+    /// `{ "field": "reasoning_details" }` - replay OpenRouter's structured array.
+    ReasoningDetails,
+}
+
 /// A single model from the catalog.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CatalogModel {
@@ -109,6 +125,9 @@ pub struct CatalogModel {
     /// `reasoning_options`). Empty means the model exposes no reasoning knob.
     #[serde(default)]
     pub reasoning_options: Vec<ReasoningOption>,
+    /// Which wire field replays prior reasoning (models.dev `interleaved`).
+    #[serde(default)]
+    pub reasoning_replay: ReasoningReplay,
 }
 
 /// A single provider from the catalog.
@@ -180,6 +199,12 @@ mod raw {
         pub modalities: Option<Modalities>,
         #[serde(default)]
         pub reasoning_options: Vec<ReasoningOption>,
+        // models.dev `interleaved`: `true`, `{ "field": "..." }`, or absent. Kept
+        // as a raw `Value` and interpreted in `reasoning_replay` so an unexpected
+        // shape from this evolving remote source is tolerated (treated as "no
+        // replay") rather than failing the whole-catalog parse.
+        #[serde(default)]
+        pub interleaved: Option<serde_json::Value>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -236,6 +261,27 @@ mod raw {
                 })
                 .collect()
         }
+
+        /// Map the raw `interleaved` value to the public [`super::ReasoningReplay`].
+        /// Absent, `false`, an unrecognized field name, or any unexpected shape
+        /// all mean replay nothing.
+        pub fn reasoning_replay(&self) -> super::ReasoningReplay {
+            use super::ReasoningReplay;
+            let Some(v) = &self.interleaved else {
+                return ReasoningReplay::Omit;
+            };
+            // Bare `true` means "replay required" with no field named; the
+            // OpenAI-compatible default field is `reasoning_content`.
+            if v.as_bool() == Some(true) {
+                return ReasoningReplay::ReasoningContent;
+            }
+            match v.get("field").and_then(|f| f.as_str()) {
+                Some("reasoning_content") => ReasoningReplay::ReasoningContent,
+                Some("reasoning") => ReasoningReplay::Reasoning,
+                Some("reasoning_details") => ReasoningReplay::ReasoningDetails,
+                _ => ReasoningReplay::Omit,
+            }
+        }
     }
 
     #[derive(Debug, Deserialize)]
@@ -281,6 +327,7 @@ mod raw {
                             reasoning: m.reasoning,
                             vision: m.accepts_image_input(),
                             reasoning_options: m.reasoning_options(),
+                            reasoning_replay: m.reasoning_replay(),
                         })
                         .collect();
 
@@ -561,6 +608,38 @@ mod tests {
     }
 
     #[test]
+    fn interleaved_maps_to_reasoning_replay() {
+        let json = r#"{
+            "p": {
+                "id": "p", "name": "P", "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1", "env": [],
+                "models": {
+                    "absent": { "id": "absent", "tool_call": true },
+                    "rc":  { "id": "rc",  "tool_call": true, "interleaved": { "field": "reasoning_content" } },
+                    "r":   { "id": "r",   "tool_call": true, "interleaved": { "field": "reasoning" } },
+                    "rd":  { "id": "rd",  "tool_call": true, "interleaved": { "field": "reasoning_details" } },
+                    "bare":  { "id": "bare",  "tool_call": true, "interleaved": true },
+                    "weird": { "id": "weird", "tool_call": true, "interleaved": { "field": "future" } },
+                    "badshape": { "id": "badshape", "tool_call": true, "interleaved": "unexpected" }
+                }
+            }
+        }"#;
+        // A present-but-unexpected `interleaved` shape must NOT fail the parse.
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        let models = &providers[0].models;
+        let replay = |id: &str| models.iter().find(|m| m.id == id).unwrap().reasoning_replay;
+        assert_eq!(replay("absent"), ReasoningReplay::Omit);
+        assert_eq!(replay("rc"), ReasoningReplay::ReasoningContent);
+        assert_eq!(replay("r"), ReasoningReplay::Reasoning);
+        assert_eq!(replay("rd"), ReasoningReplay::ReasoningDetails);
+        assert_eq!(replay("bare"), ReasoningReplay::ReasoningContent);
+        assert_eq!(replay("weird"), ReasoningReplay::Omit);
+        // Unexpected shape (a bare string) tolerated → Omit.
+        assert_eq!(replay("badshape"), ReasoningReplay::Omit);
+    }
+
+    #[test]
     fn models_are_sorted_by_id() {
         let json = r#"{
             "p": {
@@ -826,6 +905,7 @@ mod tests {
                     reasoning: false,
                     vision: false,
                     reasoning_options: vec![],
+                    reasoning_replay: ReasoningReplay::Omit,
                 }],
             }],
             fetched_at: SystemTime::now(),

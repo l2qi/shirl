@@ -13,9 +13,9 @@
 use std::sync::Arc;
 
 use sweet_core::{async_trait, Message, Model, Result, StreamSink, ToolSpec};
-use sweet_llm::{ReasoningConfig, SamplingConfig};
+use sweet_llm::{ReasoningConfig, ReasoningHistoryKey, SamplingConfig};
 
-use crate::catalog::{Protocol, ReasoningOption};
+use crate::catalog::{Protocol, ReasoningOption, ReasoningReplay};
 
 /// Default thinking-token budget used when enabling a budget-dialect model that
 /// advertises no `min` (mirrors the floor most providers accept).
@@ -235,6 +235,17 @@ fn apply_context_window(model: Arc<dyn Model>, context_window: Option<usize>) ->
     }
 }
 
+/// Map the catalog's per-model reasoning-replay choice (from models.dev
+/// `interleaved`) to the OpenAI-wire history key.
+fn history_key(replay: ReasoningReplay) -> ReasoningHistoryKey {
+    match replay {
+        ReasoningReplay::Omit => ReasoningHistoryKey::Omit,
+        ReasoningReplay::ReasoningContent => ReasoningHistoryKey::ReasoningContent,
+        ReasoningReplay::Reasoning => ReasoningHistoryKey::Reasoning,
+        ReasoningReplay::ReasoningDetails => ReasoningHistoryKey::ReasoningDetails,
+    }
+}
+
 /// Build an `Arc<dyn Model>` from a resolved protocol, base URL, and API key.
 ///
 /// `reasoning` carries the catalog's reasoning flag, the model's reasoning
@@ -262,12 +273,19 @@ pub fn build_model(
     context_window: Option<usize>,
     max_output_tokens: Option<usize>,
     reasoning: &ReasoningSettings,
+    reasoning_replay: ReasoningReplay,
     sampling: &SamplingConfig,
 ) -> Result<Arc<dyn Model>> {
     let plan = plan_reasoning(protocol, reasoning);
     let model: Arc<dyn Model> = match protocol {
         Protocol::OpenAI => {
-            let mut p = sweet_llm::OpenAIProvider::new(api_key).with_model(model_id);
+            // The catalog's reasoning-replay key applies only to the generic
+            // OpenAI-compatible transport. Cerebras/Anthropic/Gemini handle
+            // reasoning replay inside their own providers, so those arms
+            // intentionally ignore `reasoning_replay` (Cerebras always omits it).
+            let mut p = sweet_llm::OpenAIProvider::new(api_key)
+                .with_model(model_id)
+                .with_reasoning_history_key(history_key(reasoning_replay));
             if !base_url.is_empty() {
                 p = p.with_base_url(base_url);
             }
@@ -422,6 +440,7 @@ mod tests {
             Some(131_072),
             Some(40_960),
             &effort_settings(&["none"]),
+            ReasoningReplay::Omit,
             &SamplingConfig::default(),
         )
         .expect("cerebras reasoning model builds");
@@ -444,11 +463,30 @@ mod tests {
                 Some(123_000),
                 Some(8_192),
                 &ReasoningSettings::default(),
+                ReasoningReplay::Omit,
                 &SamplingConfig::default(),
             )
             .expect("provider builds");
             assert_eq!(model.context_window(), Some(123_000));
         }
+    }
+
+    #[test]
+    fn history_key_maps_reasoning_replay() {
+        use sweet_llm::ReasoningHistoryKey as K;
+        assert!(matches!(history_key(ReasoningReplay::Omit), K::Omit));
+        assert!(matches!(
+            history_key(ReasoningReplay::ReasoningContent),
+            K::ReasoningContent
+        ));
+        assert!(matches!(
+            history_key(ReasoningReplay::Reasoning),
+            K::Reasoning
+        ));
+        assert!(matches!(
+            history_key(ReasoningReplay::ReasoningDetails),
+            K::ReasoningDetails
+        ));
     }
 
     fn toggle_settings(enabled: bool) -> ReasoningSettings {

@@ -170,6 +170,7 @@ pub(crate) async fn rebuild_active_model(
         context_window,
         max_output_tokens,
         reasoning,
+        reasoning_replay,
         sampling,
     } = {
         let config = ctx.config.lock().await;
@@ -195,6 +196,7 @@ pub(crate) async fn rebuild_active_model(
         context_window,
         max_output_tokens,
         &reasoning,
+        reasoning_replay,
         &sampling,
     )?;
     let full_name = format!("{}/{}", provider_id, model_id);
