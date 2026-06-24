@@ -235,6 +235,17 @@ fn apply_context_window(model: Arc<dyn Model>, context_window: Option<usize>) ->
     }
 }
 
+/// Map the catalog's per-model reasoning-replay choice (from models.dev
+/// `interleaved`) to the OpenAI-wire history key.
+fn history_key(replay: ReasoningReplay) -> ReasoningHistoryKey {
+    match replay {
+        ReasoningReplay::Omit => ReasoningHistoryKey::Omit,
+        ReasoningReplay::ReasoningContent => ReasoningHistoryKey::ReasoningContent,
+        ReasoningReplay::Reasoning => ReasoningHistoryKey::Reasoning,
+        ReasoningReplay::ReasoningDetails => ReasoningHistoryKey::ReasoningDetails,
+    }
+}
+
 /// Build an `Arc<dyn Model>` from a resolved protocol, base URL, and API key.
 ///
 /// `reasoning` carries the catalog's reasoning flag, the model's reasoning
@@ -253,17 +264,6 @@ fn apply_context_window(model: Arc<dyn Model>, context_window: Option<usize>) ->
 /// `sampling` carries cross-provider generation parameters (temperature, top_p,
 /// stop, etc.) plus an `extra` passthrough; each provider applies the subset it
 /// supports.
-/// Map the catalog's per-model reasoning-replay choice (from models.dev
-/// `interleaved`) to the OpenAI-wire history key.
-fn history_key(replay: ReasoningReplay) -> ReasoningHistoryKey {
-    match replay {
-        ReasoningReplay::Omit => ReasoningHistoryKey::Omit,
-        ReasoningReplay::ReasoningContent => ReasoningHistoryKey::ReasoningContent,
-        ReasoningReplay::Reasoning => ReasoningHistoryKey::Reasoning,
-        ReasoningReplay::ReasoningDetails => ReasoningHistoryKey::ReasoningDetails,
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn build_model(
     protocol: Protocol,
@@ -279,6 +279,10 @@ pub fn build_model(
     let plan = plan_reasoning(protocol, reasoning);
     let model: Arc<dyn Model> = match protocol {
         Protocol::OpenAI => {
+            // The catalog's reasoning-replay key applies only to the generic
+            // OpenAI-compatible transport. Cerebras/Anthropic/Gemini handle
+            // reasoning replay inside their own providers, so those arms
+            // intentionally ignore `reasoning_replay` (Cerebras always omits it).
             let mut p = sweet_llm::OpenAIProvider::new(api_key)
                 .with_model(model_id)
                 .with_reasoning_history_key(history_key(reasoning_replay));

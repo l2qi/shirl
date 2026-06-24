@@ -199,17 +199,12 @@ mod raw {
         pub modalities: Option<Modalities>,
         #[serde(default)]
         pub reasoning_options: Vec<ReasoningOption>,
+        // models.dev `interleaved`: `true`, `{ "field": "..." }`, or absent. Kept
+        // as a raw `Value` and interpreted in `reasoning_replay` so an unexpected
+        // shape from this evolving remote source is tolerated (treated as "no
+        // replay") rather than failing the whole-catalog parse.
         #[serde(default)]
-        pub interleaved: Option<Interleaved>,
-    }
-
-    /// models.dev `interleaved`: either the bare flag `true` or
-    /// `{ "field": "reasoning" | "reasoning_content" | "reasoning_details" }`.
-    #[derive(Debug, Deserialize)]
-    #[serde(untagged)]
-    pub enum Interleaved {
-        Flag(bool),
-        Field { field: String },
+        pub interleaved: Option<serde_json::Value>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -267,21 +262,24 @@ mod raw {
                 .collect()
         }
 
-        /// Map the raw `interleaved` field to the public [`super::ReasoningReplay`].
-        /// Absent (or an unrecognized field name) means replay nothing.
+        /// Map the raw `interleaved` value to the public [`super::ReasoningReplay`].
+        /// Absent, `false`, an unrecognized field name, or any unexpected shape
+        /// all mean replay nothing.
         pub fn reasoning_replay(&self) -> super::ReasoningReplay {
             use super::ReasoningReplay;
-            match &self.interleaved {
-                None | Some(Interleaved::Flag(false)) => ReasoningReplay::Omit,
-                // Bare `true` means "replay required" with no field named; the
-                // OpenAI-compatible default field is `reasoning_content`.
-                Some(Interleaved::Flag(true)) => ReasoningReplay::ReasoningContent,
-                Some(Interleaved::Field { field }) => match field.as_str() {
-                    "reasoning_content" => ReasoningReplay::ReasoningContent,
-                    "reasoning" => ReasoningReplay::Reasoning,
-                    "reasoning_details" => ReasoningReplay::ReasoningDetails,
-                    _ => ReasoningReplay::Omit,
-                },
+            let Some(v) = &self.interleaved else {
+                return ReasoningReplay::Omit;
+            };
+            // Bare `true` means "replay required" with no field named; the
+            // OpenAI-compatible default field is `reasoning_content`.
+            if v.as_bool() == Some(true) {
+                return ReasoningReplay::ReasoningContent;
+            }
+            match v.get("field").and_then(|f| f.as_str()) {
+                Some("reasoning_content") => ReasoningReplay::ReasoningContent,
+                Some("reasoning") => ReasoningReplay::Reasoning,
+                Some("reasoning_details") => ReasoningReplay::ReasoningDetails,
+                _ => ReasoningReplay::Omit,
             }
         }
     }
@@ -621,10 +619,12 @@ mod tests {
                     "r":   { "id": "r",   "tool_call": true, "interleaved": { "field": "reasoning" } },
                     "rd":  { "id": "rd",  "tool_call": true, "interleaved": { "field": "reasoning_details" } },
                     "bare":  { "id": "bare",  "tool_call": true, "interleaved": true },
-                    "weird": { "id": "weird", "tool_call": true, "interleaved": { "field": "future" } }
+                    "weird": { "id": "weird", "tool_call": true, "interleaved": { "field": "future" } },
+                    "badshape": { "id": "badshape", "tool_call": true, "interleaved": "unexpected" }
                 }
             }
         }"#;
+        // A present-but-unexpected `interleaved` shape must NOT fail the parse.
         let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
         let providers = raw.into_providers();
         let models = &providers[0].models;
@@ -635,6 +635,8 @@ mod tests {
         assert_eq!(replay("rd"), ReasoningReplay::ReasoningDetails);
         assert_eq!(replay("bare"), ReasoningReplay::ReasoningContent);
         assert_eq!(replay("weird"), ReasoningReplay::Omit);
+        // Unexpected shape (a bare string) tolerated → Omit.
+        assert_eq!(replay("badshape"), ReasoningReplay::Omit);
     }
 
     #[test]
