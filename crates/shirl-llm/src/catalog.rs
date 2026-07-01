@@ -248,9 +248,11 @@ mod raw {
     }
 
     /// A models.dev budget bound is only meaningful when non-negative; a
-    /// negative value is its "unset" sentinel and maps to `None`.
+    /// negative value is its "unset" sentinel and maps to `None`. A positive
+    /// value beyond `u32::MAX` is clamped rather than dropped, so an
+    /// implausibly large bound still reads as "bounded" instead of "unset".
     fn budget_bound(v: Option<i64>) -> Option<u32> {
-        v.and_then(|n| u32::try_from(n).ok())
+        v.and_then(|n| (n >= 0).then(|| n.min(u32::MAX as i64) as u32))
     }
 
     impl Model {
@@ -322,8 +324,14 @@ mod raw {
                         .clone()
                         .or_else(|| super::known_base_url(&p.id).map(|s| s.to_string()))?;
 
-                    let mut models: Vec<super::CatalogModel> = p
-                        .models
+                    // Sort raw entries by key first so the per-model skip
+                    // warnings below are emitted in a stable order (HashMap
+                    // iteration is otherwise non-deterministic across runs).
+                    let mut raw_models: Vec<(String, serde_json::Value)> =
+                        p.models.into_iter().collect();
+                    raw_models.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+                    let mut models: Vec<super::CatalogModel> = raw_models
                         .into_iter()
                         .filter_map(|(key, v)| match serde_json::from_value::<Model>(v) {
                             Ok(m) => Some(m),
@@ -365,8 +373,8 @@ mod raw {
                         return None;
                     }
 
-                    // `p.models` is a HashMap, so iteration order is otherwise
-                    // non-deterministic; sort by id for a stable catalog.
+                    // Entries were iterated in key order; re-sort by model id
+                    // (which can differ from the key) for a stable catalog.
                     models.sort_by(|a, b| a.id.cmp(&b.id));
 
                     Some(super::CatalogProvider {
@@ -703,6 +711,40 @@ mod tests {
             })
             .expect("budget_tokens option present");
         assert_eq!(budget, (None, Some(32768)));
+    }
+
+    #[test]
+    fn oversized_budget_bound_is_clamped_not_dropped() {
+        // A budget bound beyond `u32::MAX` (implausible for token counts, but
+        // valid JSON) is clamped to `u32::MAX` rather than collapsing to
+        // `None`, so it still reads as "bounded" instead of "unset".
+        let json = r#"{
+            "p": {
+                "id": "p", "name": "P", "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1", "env": [],
+                "models": {
+                    "m": {
+                        "id": "m", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [
+                            { "type": "budget_tokens", "min": 0, "max": 5000000000 }
+                        ]
+                    }
+                }
+            }
+        }"#;
+
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        let model = &providers[0].models[0];
+        let budget = model
+            .reasoning_options
+            .iter()
+            .find_map(|o| match o {
+                ReasoningOption::BudgetTokens { min, max } => Some((*min, *max)),
+                _ => None,
+            })
+            .expect("budget_tokens option present");
+        assert_eq!(budget, (Some(0), Some(u32::MAX)));
     }
 
     #[test]
