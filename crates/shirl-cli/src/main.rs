@@ -146,7 +146,7 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
         Err(e) => {
             let mut io_guard = io.lock().await;
             io_guard.insert_lines(&[format!(
-                "Warning: could not load the model catalog ({e}). \
+                "Warning: could not load the model catalog ({e:#}). \
                  Only custom providers defined in config.toml are available."
             )])?;
             Catalog::default()

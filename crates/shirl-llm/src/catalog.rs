@@ -180,8 +180,13 @@ mod raw {
         pub api: Option<String>,
         #[serde(default)]
         pub env: Vec<String>,
+        // Kept as raw JSON so each model is deserialized individually in
+        // `into_providers`: models.dev capability metadata drifts often, and a
+        // single unparseable model must not fail the whole-catalog parse (which
+        // on a fresh install, with no cache to fall back on, leaves shirl with
+        // no models at all).
         #[serde(default)]
-        pub models: HashMap<String, Model>,
+        pub models: HashMap<String, serde_json::Value>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -221,17 +226,33 @@ mod raw {
     pub enum ReasoningOption {
         Toggle,
         Effort {
+            // Elements are `Option<String>` (not `String`) because models.dev
+            // may include a `null` in the list (a "no explicit effort" slot,
+            // seen on sarvam models). `reasoning_options` drops the nulls; a
+            // stricter type would fail the whole-catalog parse over one.
             #[serde(default)]
-            values: Vec<String>,
+            values: Vec<Option<String>>,
         },
         BudgetTokens {
+            // Deserialized as `i64` (not `u32`) because models.dev uses a
+            // sentinel negative (e.g. `-1`) to mean "no explicit bound". A
+            // stricter type would fail the *whole-catalog* parse over one such
+            // entry; `reasoning_options` maps negatives to `None`.
             #[serde(default)]
-            min: Option<u32>,
+            min: Option<i64>,
             #[serde(default)]
-            max: Option<u32>,
+            max: Option<i64>,
         },
         #[serde(other)]
         Unknown,
+    }
+
+    /// A models.dev budget bound is only meaningful when non-negative; a
+    /// negative value is its "unset" sentinel and maps to `None`. A positive
+    /// value beyond `u32::MAX` is clamped rather than dropped, so an
+    /// implausibly large bound still reads as "bounded" instead of "unset".
+    fn budget_bound(v: Option<i64>) -> Option<u32> {
+        v.and_then(|n| (n >= 0).then(|| n.min(u32::MAX as i64) as u32))
     }
 
     impl Model {
@@ -249,12 +270,12 @@ mod raw {
                 .filter_map(|o| match o {
                     ReasoningOption::Toggle => Some(super::ReasoningOption::Toggle),
                     ReasoningOption::Effort { values } => Some(super::ReasoningOption::Effort {
-                        values: values.clone(),
+                        values: values.iter().flatten().cloned().collect(),
                     }),
                     ReasoningOption::BudgetTokens { min, max } => {
                         Some(super::ReasoningOption::BudgetTokens {
-                            min: *min,
-                            max: *max,
+                            min: budget_bound(*min),
+                            max: budget_bound(*max),
                         })
                     }
                     ReasoningOption::Unknown => None,
@@ -303,9 +324,26 @@ mod raw {
                         .clone()
                         .or_else(|| super::known_base_url(&p.id).map(|s| s.to_string()))?;
 
-                    let mut models: Vec<super::CatalogModel> = p
-                        .models
-                        .values()
+                    // Sort raw entries by key first so the per-model skip
+                    // warnings below are emitted in a stable order (HashMap
+                    // iteration is otherwise non-deterministic across runs).
+                    let mut raw_models: Vec<(String, serde_json::Value)> =
+                        p.models.into_iter().collect();
+                    raw_models.sort_by(|(a, _), (b, _)| a.cmp(b));
+
+                    let mut models: Vec<super::CatalogModel> = raw_models
+                        .into_iter()
+                        .filter_map(|(key, v)| match serde_json::from_value::<Model>(v) {
+                            Ok(m) => Some(m),
+                            Err(e) => {
+                                tracing::warn!(
+                                    provider = %p.id,
+                                    model = %key,
+                                    "skipping unparseable models.dev model: {e}"
+                                );
+                                None
+                            }
+                        })
                         .filter(|m| m.tool_call.unwrap_or(true))
                         .map(|m| super::CatalogModel {
                             id: m.id.clone(),
@@ -335,8 +373,8 @@ mod raw {
                         return None;
                     }
 
-                    // `p.models` is a HashMap, so iteration order is otherwise
-                    // non-deterministic; sort by id for a stable catalog.
+                    // Entries were iterated in key order; re-sort by model id
+                    // (which can differ from the key) for a stable catalog.
                     models.sort_by(|a, b| a.id.cmp(&b.id));
 
                     Some(super::CatalogProvider {
@@ -637,6 +675,136 @@ mod tests {
         assert_eq!(replay("weird"), ReasoningReplay::Omit);
         // Unexpected shape (a bare string) tolerated → Omit.
         assert_eq!(replay("badshape"), ReasoningReplay::Omit);
+    }
+
+    #[test]
+    fn negative_budget_bound_does_not_fail_catalog_parse() {
+        // models.dev uses `-1` as a "no explicit bound" sentinel for
+        // budget_tokens (seen on nvidia nemotron reasoning models). A single
+        // such entry must not abort the whole-catalog parse; the negative
+        // bound maps to `None`.
+        let json = r#"{
+            "p": {
+                "id": "p", "name": "P", "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1", "env": [],
+                "models": {
+                    "m": {
+                        "id": "m", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [
+                            { "type": "toggle" },
+                            { "type": "budget_tokens", "min": -1, "max": 32768 }
+                        ]
+                    }
+                }
+            }
+        }"#;
+
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        let model = &providers[0].models[0];
+        let budget = model
+            .reasoning_options
+            .iter()
+            .find_map(|o| match o {
+                ReasoningOption::BudgetTokens { min, max } => Some((*min, *max)),
+                _ => None,
+            })
+            .expect("budget_tokens option present");
+        assert_eq!(budget, (None, Some(32768)));
+    }
+
+    #[test]
+    fn oversized_budget_bound_is_clamped_not_dropped() {
+        // A budget bound beyond `u32::MAX` (implausible for token counts, but
+        // valid JSON) is clamped to `u32::MAX` rather than collapsing to
+        // `None`, so it still reads as "bounded" instead of "unset".
+        let json = r#"{
+            "p": {
+                "id": "p", "name": "P", "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1", "env": [],
+                "models": {
+                    "m": {
+                        "id": "m", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [
+                            { "type": "budget_tokens", "min": 0, "max": 5000000000 }
+                        ]
+                    }
+                }
+            }
+        }"#;
+
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        let model = &providers[0].models[0];
+        let budget = model
+            .reasoning_options
+            .iter()
+            .find_map(|o| match o {
+                ReasoningOption::BudgetTokens { min, max } => Some((*min, *max)),
+                _ => None,
+            })
+            .expect("budget_tokens option present");
+        assert_eq!(budget, (Some(0), Some(u32::MAX)));
+    }
+
+    #[test]
+    fn unparseable_model_is_skipped_siblings_survive() {
+        // A single malformed models.dev model must not abort the whole-catalog
+        // parse; well-formed siblings are retained. Here `bad` has a
+        // wrong-typed `tool_call` (a string, not a bool), which fails the
+        // per-model deserialization even though the field carries
+        // `#[serde(default)]` (that only covers absence, not a bad type).
+        let json = r#"{
+            "p": {
+                "id": "p", "name": "P", "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1", "env": [],
+                "models": {
+                    "good": { "id": "good", "tool_call": true },
+                    "bad":  { "id": "bad",  "tool_call": "not-a-bool" }
+                }
+            }
+        }"#;
+
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].models.len(), 1);
+        assert_eq!(providers[0].models[0].id, "good");
+    }
+
+    #[test]
+    fn null_effort_values_are_dropped() {
+        // models.dev may include a `null` in an effort option's `values` list
+        // (a "no explicit effort" slot, seen on sarvam models). `null` entries
+        // are dropped while the real labels survive; the whole-catalog parse
+        // must not fail over them.
+        let json = r#"{
+            "p": {
+                "id": "p", "name": "P", "npm": "@ai-sdk/openai-compatible",
+                "api": "https://api.test.example/v1", "env": [],
+                "models": {
+                    "m": {
+                        "id": "m", "tool_call": true, "reasoning": true,
+                        "reasoning_options": [
+                            { "type": "effort", "values": ["low", null, "high"] }
+                        ]
+                    }
+                }
+            }
+        }"#;
+
+        let raw: raw::ModelsDev = serde_json::from_str(json).unwrap();
+        let providers = raw.into_providers();
+        let model = &providers[0].models[0];
+        let values = model
+            .reasoning_options
+            .iter()
+            .find_map(|o| match o {
+                ReasoningOption::Effort { values } => Some(values.clone()),
+                _ => None,
+            })
+            .expect("effort option present");
+        assert_eq!(values, vec!["low".to_string(), "high".to_string()]);
     }
 
     #[test]
