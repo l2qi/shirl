@@ -25,11 +25,32 @@ pub(crate) fn load_tracker(session_id: &SessionId) -> Option<PlanTracker> {
         .map(PlanTracker::load)
 }
 
-/// Sandbox read roots that let the agent read back the workflow tracker's
-/// plan/review files under `~/.shirl/sessions` (read-only) without re-exposing
-/// the rest of the home directory. Empty if the home dir can't be resolved.
+/// Sandbox read roots the agent may read but not write, without re-exposing the
+/// rest of the home directory:
+/// - the workflow tracker's plan/review files under `~/.shirl/sessions`, and
+/// - ancestor `.cargo` directories (see [`ancestor_cargo_dirs`]).
 pub(crate) fn sandbox_read_roots() -> Vec<PathBuf> {
-    shirl_core::sessions_root().ok().into_iter().collect()
+    let mut roots: Vec<PathBuf> = shirl_core::sessions_root().ok().into_iter().collect();
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.extend(ancestor_cargo_dirs(&cwd));
+    }
+    roots
+}
+
+/// Cargo discovers configuration by walking from the working directory up
+/// through every ancestor, reading each `.cargo/config.toml` it finds. Under
+/// the sandbox only the project root is readable, so an ancestor `.cargo` (e.g.
+/// a `[patch]` overlay shared across sibling crates in a parent dir) is denied
+/// and the build fails with a permission error. Expose those ancestor `.cargo`
+/// dirs read-only so cargo's config walk succeeds. The project root's own
+/// `.cargo` is already readable, so only strict ancestors need adding.
+fn ancestor_cargo_dirs(cwd: &Path) -> Vec<PathBuf> {
+    cwd.ancestors()
+        .skip(1) // strict ancestors; cwd itself is already in the write root
+        .map(|dir| dir.join(".cargo"))
+        .filter(|cargo| cargo.is_dir())
+        .map(|cargo| std::fs::canonicalize(&cargo).unwrap_or(cargo))
+        .collect()
 }
 
 /// Attach the `write_todos` tool and the per-turn reminder to a Main agent.
@@ -191,5 +212,38 @@ mod tests {
     #[test]
     fn handover_with_nothing_to_persist_is_none() {
         assert!(resolve_handover(None, None).is_none());
+    }
+
+    #[test]
+    fn ancestor_cargo_dirs_finds_ancestor_and_skips_cwd() {
+        // A `.cargo` in a parent dir (the alset-dev `[patch]` overlay case) must
+        // be surfaced, while the working dir's own `.cargo` is skipped - it is
+        // already inside the readable project root.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".cargo")).unwrap();
+        let cwd = root.join("a/b");
+        std::fs::create_dir_all(cwd.join(".cargo")).unwrap();
+
+        let dirs = ancestor_cargo_dirs(&cwd);
+
+        let ancestor = std::fs::canonicalize(root.join(".cargo")).unwrap();
+        let own = std::fs::canonicalize(cwd.join(".cargo")).unwrap();
+        assert!(
+            dirs.contains(&ancestor),
+            "ancestor .cargo should be surfaced: {dirs:?}"
+        );
+        assert!(
+            !dirs.contains(&own),
+            "the cwd's own .cargo must be skipped: {dirs:?}"
+        );
+    }
+
+    #[test]
+    fn ancestor_cargo_dirs_empty_without_ancestor_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("x/y/z");
+        std::fs::create_dir_all(&cwd).unwrap();
+        assert!(ancestor_cargo_dirs(&cwd).is_empty());
     }
 }
