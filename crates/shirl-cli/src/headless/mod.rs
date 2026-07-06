@@ -10,7 +10,7 @@ use shirl_llm::catalog::Catalog;
 use sweet_agent::{AgentIo, ExtensionRegistry, TurnResult};
 use sweet_core::sandbox::{DirectSandbox, Sandbox, SandboxPolicy};
 use sweet_core::{Message, Session, SessionId};
-use sweet_sandbox::OsSandbox;
+use sweet_sandbox::{OsSandbox, SandboxRoots};
 
 use crate::mcp;
 use crate::model::{self, ModelStore};
@@ -204,8 +204,12 @@ pub async fn run_headless(
         match OsSandbox::new(
             std::env::current_dir().context("current directory does not exist")?,
             sandbox_policy,
-            // Let the agent read back plan/review files under the sessions dir.
-            crate::tracking::sandbox_read_roots(),
+            SandboxRoots {
+                // Let the agent read back plan/review files under the sessions dir.
+                read: crate::tracking::sandbox_read_roots(),
+                // Let cargo write its registry/git caches under $CARGO_HOME.
+                write: crate::tracking::sandbox_write_roots(),
+            },
             // Hide the config home (auth.toml holds API keys) from the sandbox.
             vec![shirl_core::config_dir_name().to_string()],
         ) {

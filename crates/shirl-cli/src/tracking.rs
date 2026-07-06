@@ -56,6 +56,35 @@ fn ancestor_cargo_dirs(cwd: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Sandbox write roots the agent may write as well as read, without opening up
+/// the rest of the home directory. `cargo build` populates its registry cache,
+/// git checkouts, and `.package-cache` lock under `$CARGO_HOME` (default
+/// `~/.cargo`), which lives outside the project root - without write access
+/// there every fetch fails with `Operation not permitted`. `$CARGO_HOME` is
+/// already a *read* root (a known tool dir the sandbox exposes), so this only
+/// adds the write capability. Returned only when the directory exists, and used
+/// only under the sandbox (a no-op when the sandbox policy is Off).
+pub(crate) fn sandbox_write_roots() -> Vec<PathBuf> {
+    cargo_home()
+        .filter(|home| home.is_dir())
+        .into_iter()
+        .collect()
+}
+
+/// Resolve `$CARGO_HOME`, falling back to `~/.cargo` - cargo's own default.
+fn cargo_home() -> Option<PathBuf> {
+    cargo_home_from(
+        std::env::var_os("CARGO_HOME").map(PathBuf::from),
+        dirs::home_dir(),
+    )
+}
+
+/// The env-var-vs-default resolution, split out for testing without touching
+/// process-wide environment state.
+fn cargo_home_from(env_cargo_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    env_cargo_home.or_else(|| home.map(|h| h.join(".cargo")))
+}
+
 /// Attach the `write_todos` tool and the per-turn reminder to a Main agent.
 pub(crate) fn attach(agent: Agent<Arc<dyn Model>>, tracker: &PlanTracker) -> Agent<Arc<dyn Model>> {
     agent
@@ -250,5 +279,32 @@ mod tests {
         let cwd = tmp.path().join("x/y/z");
         std::fs::create_dir_all(&cwd).unwrap();
         assert!(ancestor_cargo_dirs(&cwd).is_empty());
+    }
+
+    #[test]
+    fn cargo_home_prefers_env_over_default() {
+        // An explicit CARGO_HOME wins - matching cargo's own precedence.
+        let env = PathBuf::from("/custom/cargo");
+        let home = PathBuf::from("/home/user");
+        assert_eq!(
+            cargo_home_from(Some(env.clone()), Some(home)),
+            Some(env),
+            "CARGO_HOME must override the ~/.cargo default"
+        );
+    }
+
+    #[test]
+    fn cargo_home_falls_back_to_dot_cargo_under_home() {
+        let home = PathBuf::from("/home/user");
+        assert_eq!(
+            cargo_home_from(None, Some(home.clone())),
+            Some(home.join(".cargo")),
+            "without CARGO_HOME the default is ~/.cargo"
+        );
+    }
+
+    #[test]
+    fn cargo_home_none_without_env_or_home() {
+        assert_eq!(cargo_home_from(None, None), None);
     }
 }

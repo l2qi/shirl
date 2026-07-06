@@ -30,6 +30,7 @@ tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
 crossterm = { workspace = true }
 ignore = { workspace = true }
+dirs = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
