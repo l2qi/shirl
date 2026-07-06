@@ -44,12 +44,15 @@ pub(crate) fn sandbox_read_roots() -> Vec<PathBuf> {
 /// and the build fails with a permission error. Expose those ancestor `.cargo`
 /// dirs read-only so cargo's config walk succeeds. The project root's own
 /// `.cargo` is already readable, so only strict ancestors need adding.
+///
+/// Paths are returned as found; `OsSandbox` canonicalizes every read root
+/// (resolving symlinks) so the in-process file tools and the sandboxed command
+/// runner both see the same resolved directory.
 fn ancestor_cargo_dirs(cwd: &Path) -> Vec<PathBuf> {
     cwd.ancestors()
         .skip(1) // strict ancestors; cwd itself is already in the write root
         .map(|dir| dir.join(".cargo"))
         .filter(|cargo| cargo.is_dir())
-        .map(|cargo| std::fs::canonicalize(&cargo).unwrap_or(cargo))
         .collect()
 }
 
@@ -227,8 +230,10 @@ mod tests {
 
         let dirs = ancestor_cargo_dirs(&cwd);
 
-        let ancestor = std::fs::canonicalize(root.join(".cargo")).unwrap();
-        let own = std::fs::canonicalize(cwd.join(".cargo")).unwrap();
+        // Paths are returned as found (OsSandbox canonicalizes read roots), so
+        // compare against the same non-canonicalized joins the walk produces.
+        let ancestor = root.join(".cargo");
+        let own = cwd.join(".cargo");
         assert!(
             dirs.contains(&ancestor),
             "ancestor .cargo should be surfaced: {dirs:?}"
