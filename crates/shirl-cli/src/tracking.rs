@@ -15,6 +15,7 @@ use shirl_agents::headless::{ReportStore, Tracking};
 use shirl_core::PlanTracker;
 use sweet_agent::Agent;
 use sweet_core::{Model, Role, Session, SessionId};
+use sweet_sandbox::SandboxRoots;
 
 /// Load the workflow tracker for a session, or `None` if the home directory
 /// can't be resolved (workflow features then degrade off - unreachable in
@@ -25,11 +26,21 @@ pub(crate) fn load_tracker(session_id: &SessionId) -> Option<PlanTracker> {
         .map(PlanTracker::load)
 }
 
+/// The extra sandbox roots for both `OsSandbox::new` call sites (interactive and
+/// headless). Bundled here so the read/write pairing lives in one place and a
+/// future change to either set reaches both sites at once.
+pub(crate) fn sandbox_roots() -> SandboxRoots {
+    SandboxRoots {
+        read: sandbox_read_roots(),
+        write: sandbox_write_roots(),
+    }
+}
+
 /// Sandbox read roots the agent may read but not write, without re-exposing the
 /// rest of the home directory:
 /// - the workflow tracker's plan/review files under `~/.shirl/sessions`, and
 /// - ancestor `.cargo` directories (see [`ancestor_cargo_dirs`]).
-pub(crate) fn sandbox_read_roots() -> Vec<PathBuf> {
+fn sandbox_read_roots() -> Vec<PathBuf> {
     let mut roots: Vec<PathBuf> = shirl_core::sessions_root().ok().into_iter().collect();
     if let Ok(cwd) = std::env::current_dir() {
         roots.extend(ancestor_cargo_dirs(&cwd));
@@ -66,7 +77,7 @@ fn ancestor_cargo_dirs(cwd: &Path) -> Vec<PathBuf> {
 /// every write root into the read set). Either way this adds write access on top
 /// of read access. Returned only when the directory exists, and used only under
 /// the sandbox (a no-op when the sandbox policy is Off).
-pub(crate) fn sandbox_write_roots() -> Vec<PathBuf> {
+fn sandbox_write_roots() -> Vec<PathBuf> {
     existing_dirs(cargo_home())
 }
 

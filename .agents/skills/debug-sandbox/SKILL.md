@@ -98,7 +98,11 @@ every existing ancestor `.cargo` readable — deliberately broad, matching cargo
 unsandboxed behavior (it writes caches across the tree). A planted ancestor
 `.cargo/config.toml` is a cargo config-injection concern, not a sandbox
 exfiltration one; `~/.shirl` and the universal credential denylist stay hidden
-regardless. A no-op when the sandbox policy is `Off` or the dir doesn't exist.
+regardless. That last part holds **because `$CARGO_HOME` is disjoint from
+`~/.shirl`** — true for the default `~/.cargo` and any sane custom value; a
+pathological `CARGO_HOME` inside `~/.shirl` would make `auth.toml` writable (and
+would break shirl's own config loading anyway, so nothing guards against it). A
+no-op when the sandbox policy is `Off` or the dir doesn't exist.
 
 ### `extra_secret_dirs` — `.shirl`
 
