@@ -60,10 +60,12 @@ fn ancestor_cargo_dirs(cwd: &Path) -> Vec<PathBuf> {
 /// the rest of the home directory. `cargo build` populates its registry cache,
 /// git checkouts, and `.package-cache` lock under `$CARGO_HOME` (default
 /// `~/.cargo`), which lives outside the project root - without write access
-/// there every fetch fails with `Operation not permitted`. `$CARGO_HOME` is
-/// already a *read* root (a known tool dir the sandbox exposes), so this only
-/// adds the write capability. Returned only when the directory exists, and used
-/// only under the sandbox (a no-op when the sandbox policy is Off).
+/// there every fetch fails with `Operation not permitted`. The default
+/// `~/.cargo` is already a *read* root (a known tool dir the sandbox exposes);
+/// a custom `$CARGO_HOME` is made readable by the write root itself (sweet folds
+/// every write root into the read set). Either way this adds write access on top
+/// of read access. Returned only when the directory exists, and used only under
+/// the sandbox (a no-op when the sandbox policy is Off).
 pub(crate) fn sandbox_write_roots() -> Vec<PathBuf> {
     cargo_home()
         .filter(|home| home.is_dir())
@@ -80,9 +82,12 @@ fn cargo_home() -> Option<PathBuf> {
 }
 
 /// The env-var-vs-default resolution, split out for testing without touching
-/// process-wide environment state.
+/// process-wide environment state. An empty `CARGO_HOME` is treated as unset -
+/// cargo itself ignores an empty value and falls back to `~/.cargo`.
 fn cargo_home_from(env_cargo_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
-    env_cargo_home.or_else(|| home.map(|h| h.join(".cargo")))
+    env_cargo_home
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| home.map(|h| h.join(".cargo")))
 }
 
 /// Attach the `write_todos` tool and the per-turn reminder to a Main agent.
@@ -306,5 +311,17 @@ mod tests {
     #[test]
     fn cargo_home_none_without_env_or_home() {
         assert_eq!(cargo_home_from(None, None), None);
+    }
+
+    #[test]
+    fn cargo_home_ignores_empty_env() {
+        // An empty CARGO_HOME is treated as unset, matching cargo, so the
+        // ~/.cargo default still wins rather than yielding an empty path.
+        let home = PathBuf::from("/home/user");
+        assert_eq!(
+            cargo_home_from(Some(PathBuf::new()), Some(home.clone())),
+            Some(home.join(".cargo")),
+            "empty CARGO_HOME must fall back to ~/.cargo"
+        );
     }
 }
