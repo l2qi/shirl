@@ -28,18 +28,17 @@ Both call:
 
 ```rust
 OsSandbox::new(
-    current_dir,            // project root: always readable + writable
-    sandbox_policy,         // Off | Sandbox | Restricted
-    SandboxRoots {
-        read: tracking::sandbox_read_roots(),   // extra read-only roots
-        write: tracking::sandbox_write_roots(), // extra read+write roots
-    },
-    vec![".shirl".to_string()],       // extra_secret_dirs
+    current_dir,               // project root: always readable + writable
+    sandbox_policy,            // Off | Sandbox | Restricted
+    tracking::sandbox_roots(), // SandboxRoots { read, write } — see below
+    vec![".shirl".to_string()], // extra_secret_dirs
 )
 ```
 
-The 3rd argument is a `SandboxRoots { read, write }` (sweet ≥ 0.3.7); before
-that it was a bare `extra_read_roots: Vec<PathBuf>` positional.
+`tracking::sandbox_roots()` bundles the two extra-root sets into one
+`SandboxRoots { read, write }` (sweet ≥ 0.3.7 — before that the 3rd argument was
+a bare `extra_read_roots: Vec<PathBuf>` positional). The `read`/`write` fields
+are described below.
 
 If `OsSandbox::new` errors (e.g. `bwrap` not installed on Linux), shirl prints a
 warning and falls back to `DirectSandbox` (unsandboxed). `build_agent` in
