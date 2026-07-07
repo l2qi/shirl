@@ -78,7 +78,9 @@ command runners"): the in-process `RestrictedFs` (the `read_file`/`grep`/… too
 *and* the OS command runner, which `--ro-bind`s each read root on top of the
 `$HOME` tmpfs. So a bash `cargo build` can read an ancestor `.cargo`, and a shell
 `cat ~/.shirl/sessions/.../plan.md` now works too. `auth.toml` stays hidden — it
-sits directly under `~/.shirl`, not under any read root (see `extra_secret_dirs`).
+sits directly under `~/.shirl`, under no read or write root, and
+`extra_secret_dirs` keeps `~/.shirl` out of the tool-root set so it stays that
+way (it filters the readable roots, not a blanket read-denylist — see below).
 
 ### `write` — `$CARGO_HOME`
 

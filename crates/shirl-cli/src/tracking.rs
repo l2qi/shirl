@@ -67,10 +67,7 @@ fn ancestor_cargo_dirs(cwd: &Path) -> Vec<PathBuf> {
 /// of read access. Returned only when the directory exists, and used only under
 /// the sandbox (a no-op when the sandbox policy is Off).
 pub(crate) fn sandbox_write_roots() -> Vec<PathBuf> {
-    cargo_home()
-        .filter(|home| home.is_dir())
-        .into_iter()
-        .collect()
+    existing_dirs(cargo_home())
 }
 
 /// Resolve `$CARGO_HOME`, falling back to `~/.cargo` - cargo's own default.
@@ -88,6 +85,15 @@ fn cargo_home_from(env_cargo_home: Option<PathBuf>, home: Option<PathBuf>) -> Op
     env_cargo_home
         .filter(|p| !p.as_os_str().is_empty())
         .or_else(|| home.map(|h| h.join(".cargo")))
+}
+
+/// Keep only a candidate root that currently exists as a directory. This backs
+/// the "no-op when the dir doesn't exist" guarantee for the write root; the
+/// existence check is split out so it can be tested without depending on
+/// process-wide `$CARGO_HOME`/home state (both sandbox runners also skip
+/// non-existent roots, so this is defense in depth for the doc contract).
+fn existing_dirs(candidate: Option<PathBuf>) -> Vec<PathBuf> {
+    candidate.filter(|dir| dir.is_dir()).into_iter().collect()
 }
 
 /// Attach the `write_todos` tool and the per-turn reminder to a Main agent.
@@ -323,5 +329,27 @@ mod tests {
             Some(home.join(".cargo")),
             "empty CARGO_HOME must fall back to ~/.cargo"
         );
+    }
+
+    #[test]
+    fn existing_dirs_keeps_a_real_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().to_path_buf();
+        assert_eq!(existing_dirs(Some(dir.clone())), vec![dir]);
+    }
+
+    #[test]
+    fn existing_dirs_drops_a_missing_path() {
+        // The existence guard behind sandbox_write_roots' "no-op when the dir
+        // doesn't exist" contract: a resolved-but-absent $CARGO_HOME yields no
+        // write root rather than one pointing at nothing.
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        assert!(existing_dirs(Some(missing)).is_empty());
+    }
+
+    #[test]
+    fn existing_dirs_drops_none() {
+        assert!(existing_dirs(None).is_empty());
     }
 }
