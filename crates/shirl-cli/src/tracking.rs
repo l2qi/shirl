@@ -15,6 +15,7 @@ use shirl_agents::headless::{ReportStore, Tracking};
 use shirl_core::PlanTracker;
 use sweet_agent::Agent;
 use sweet_core::{Model, Role, Session, SessionId};
+use sweet_sandbox::SandboxRoots;
 
 /// Load the workflow tracker for a session, or `None` if the home directory
 /// can't be resolved (workflow features then degrade off - unreachable in
@@ -25,11 +26,85 @@ pub(crate) fn load_tracker(session_id: &SessionId) -> Option<PlanTracker> {
         .map(PlanTracker::load)
 }
 
-/// Sandbox read roots that let the agent read back the workflow tracker's
-/// plan/review files under `~/.shirl/sessions` (read-only) without re-exposing
-/// the rest of the home directory. Empty if the home dir can't be resolved.
-pub(crate) fn sandbox_read_roots() -> Vec<PathBuf> {
-    shirl_core::sessions_root().ok().into_iter().collect()
+/// The extra sandbox roots for both `OsSandbox::new` call sites (interactive and
+/// headless). Bundled here so the read/write pairing lives in one place and a
+/// future change to either set reaches both sites at once.
+pub(crate) fn sandbox_roots() -> SandboxRoots {
+    SandboxRoots {
+        read: sandbox_read_roots(),
+        write: sandbox_write_roots(),
+    }
+}
+
+/// Sandbox read roots the agent may read but not write, without re-exposing the
+/// rest of the home directory:
+/// - the workflow tracker's plan/review files under `~/.shirl/sessions`, and
+/// - ancestor `.cargo` directories (see [`ancestor_cargo_dirs`]).
+fn sandbox_read_roots() -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = shirl_core::sessions_root().ok().into_iter().collect();
+    if let Ok(cwd) = std::env::current_dir() {
+        roots.extend(ancestor_cargo_dirs(&cwd));
+    }
+    roots
+}
+
+/// Cargo discovers configuration by walking from the working directory up
+/// through every ancestor, reading each `.cargo/config.toml` it finds. Under
+/// the sandbox only the project root is readable, so an ancestor `.cargo` (e.g.
+/// a `[patch]` overlay shared across sibling crates in a parent dir) is denied
+/// and the build fails with a permission error. Expose those ancestor `.cargo`
+/// dirs read-only so cargo's config walk succeeds. The project root's own
+/// `.cargo` is already readable, so only strict ancestors need adding.
+///
+/// Paths are returned as found; `OsSandbox` canonicalizes every read root
+/// (resolving symlinks) so the in-process file tools and the sandboxed command
+/// runner both see the same resolved directory.
+fn ancestor_cargo_dirs(cwd: &Path) -> Vec<PathBuf> {
+    cwd.ancestors()
+        .skip(1) // strict ancestors; cwd itself is already in the write root
+        .map(|dir| dir.join(".cargo"))
+        .filter(|cargo| cargo.is_dir())
+        .collect()
+}
+
+/// Sandbox write roots the agent may write as well as read, without opening up
+/// the rest of the home directory. `cargo build` populates its registry cache,
+/// git checkouts, and `.package-cache` lock under `$CARGO_HOME` (default
+/// `~/.cargo`), which lives outside the project root - without write access
+/// there every fetch fails with `Operation not permitted`. The default
+/// `~/.cargo` is already a *read* root (a known tool dir the sandbox exposes);
+/// a custom `$CARGO_HOME` is made readable by the write root itself (sweet folds
+/// every write root into the read set). Either way this adds write access on top
+/// of read access. Returned only when the directory exists, and used only under
+/// the sandbox (a no-op when the sandbox policy is Off).
+fn sandbox_write_roots() -> Vec<PathBuf> {
+    existing_dirs(cargo_home())
+}
+
+/// Resolve `$CARGO_HOME`, falling back to `~/.cargo` - cargo's own default.
+fn cargo_home() -> Option<PathBuf> {
+    cargo_home_from(
+        std::env::var_os("CARGO_HOME").map(PathBuf::from),
+        dirs::home_dir(),
+    )
+}
+
+/// The env-var-vs-default resolution, split out for testing without touching
+/// process-wide environment state. An empty `CARGO_HOME` is treated as unset -
+/// cargo itself ignores an empty value and falls back to `~/.cargo`.
+fn cargo_home_from(env_cargo_home: Option<PathBuf>, home: Option<PathBuf>) -> Option<PathBuf> {
+    env_cargo_home
+        .filter(|p| !p.as_os_str().is_empty())
+        .or_else(|| home.map(|h| h.join(".cargo")))
+}
+
+/// Keep only a candidate root that currently exists as a directory. This backs
+/// the "no-op when the dir doesn't exist" guarantee for the write root; the
+/// existence check is split out so it can be tested without depending on
+/// process-wide `$CARGO_HOME`/home state (both sandbox runners also skip
+/// non-existent roots, so this is defense in depth for the doc contract).
+fn existing_dirs(candidate: Option<PathBuf>) -> Vec<PathBuf> {
+    candidate.filter(|dir| dir.is_dir()).into_iter().collect()
 }
 
 /// Attach the `write_todos` tool and the per-turn reminder to a Main agent.
@@ -191,5 +266,101 @@ mod tests {
     #[test]
     fn handover_with_nothing_to_persist_is_none() {
         assert!(resolve_handover(None, None).is_none());
+    }
+
+    #[test]
+    fn ancestor_cargo_dirs_finds_ancestor_and_skips_cwd() {
+        // A `.cargo` in a parent dir (the alset-dev `[patch]` overlay case) must
+        // be surfaced, while the working dir's own `.cargo` is skipped - it is
+        // already inside the readable project root.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".cargo")).unwrap();
+        let cwd = root.join("a/b");
+        std::fs::create_dir_all(cwd.join(".cargo")).unwrap();
+
+        let dirs = ancestor_cargo_dirs(&cwd);
+
+        // Paths are returned as found (OsSandbox canonicalizes read roots), so
+        // compare against the same non-canonicalized joins the walk produces.
+        let ancestor = root.join(".cargo");
+        let own = cwd.join(".cargo");
+        assert!(
+            dirs.contains(&ancestor),
+            "ancestor .cargo should be surfaced: {dirs:?}"
+        );
+        assert!(
+            !dirs.contains(&own),
+            "the cwd's own .cargo must be skipped: {dirs:?}"
+        );
+    }
+
+    #[test]
+    fn ancestor_cargo_dirs_empty_without_ancestor_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("x/y/z");
+        std::fs::create_dir_all(&cwd).unwrap();
+        assert!(ancestor_cargo_dirs(&cwd).is_empty());
+    }
+
+    #[test]
+    fn cargo_home_prefers_env_over_default() {
+        // An explicit CARGO_HOME wins - matching cargo's own precedence.
+        let env = PathBuf::from("/custom/cargo");
+        let home = PathBuf::from("/home/user");
+        assert_eq!(
+            cargo_home_from(Some(env.clone()), Some(home)),
+            Some(env),
+            "CARGO_HOME must override the ~/.cargo default"
+        );
+    }
+
+    #[test]
+    fn cargo_home_falls_back_to_dot_cargo_under_home() {
+        let home = PathBuf::from("/home/user");
+        assert_eq!(
+            cargo_home_from(None, Some(home.clone())),
+            Some(home.join(".cargo")),
+            "without CARGO_HOME the default is ~/.cargo"
+        );
+    }
+
+    #[test]
+    fn cargo_home_none_without_env_or_home() {
+        assert_eq!(cargo_home_from(None, None), None);
+    }
+
+    #[test]
+    fn cargo_home_ignores_empty_env() {
+        // An empty CARGO_HOME is treated as unset, matching cargo, so the
+        // ~/.cargo default still wins rather than yielding an empty path.
+        let home = PathBuf::from("/home/user");
+        assert_eq!(
+            cargo_home_from(Some(PathBuf::new()), Some(home.clone())),
+            Some(home.join(".cargo")),
+            "empty CARGO_HOME must fall back to ~/.cargo"
+        );
+    }
+
+    #[test]
+    fn existing_dirs_keeps_a_real_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().to_path_buf();
+        assert_eq!(existing_dirs(Some(dir.clone())), vec![dir]);
+    }
+
+    #[test]
+    fn existing_dirs_drops_a_missing_path() {
+        // The existence guard behind sandbox_write_roots' "no-op when the dir
+        // doesn't exist" contract: a resolved-but-absent $CARGO_HOME yields no
+        // write root rather than one pointing at nothing.
+        let tmp = tempfile::tempdir().unwrap();
+        let missing = tmp.path().join("does-not-exist");
+        assert!(existing_dirs(Some(missing)).is_empty());
+    }
+
+    #[test]
+    fn existing_dirs_drops_none() {
+        assert!(existing_dirs(None).is_empty());
     }
 }

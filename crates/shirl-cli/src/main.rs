@@ -233,8 +233,9 @@ async fn run(cli_args: cli::CliArgs) -> Result<()> {
             std::env::current_dir()
                 .context("current directory does not exist - cd into a valid directory first")?,
             cli_args.sandbox_policy,
-            // Let the agent read back plan/review files under ~/.shirl/sessions.
-            tracking::sandbox_read_roots(),
+            // Extra read roots (~/.shirl/sessions, ancestor .cargo dirs) plus
+            // the $CARGO_HOME write root so cargo can populate its caches.
+            tracking::sandbox_roots(),
             // Hide the config home (auth.toml holds API keys) from the sandbox.
             vec![shirl_core::config_dir_name().to_string()],
         ) {

@@ -204,8 +204,9 @@ pub async fn run_headless(
         match OsSandbox::new(
             std::env::current_dir().context("current directory does not exist")?,
             sandbox_policy,
-            // Let the agent read back plan/review files under the sessions dir.
-            crate::tracking::sandbox_read_roots(),
+            // Extra read roots (sessions dir, ancestor .cargo dirs) plus the
+            // $CARGO_HOME write root so cargo can populate its caches.
+            crate::tracking::sandbox_roots(),
             // Hide the config home (auth.toml holds API keys) from the sandbox.
             vec![shirl_core::config_dir_name().to_string()],
         ) {
